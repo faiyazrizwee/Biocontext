@@ -45,7 +45,7 @@ st.markdown(
 # Top header (branding)
 left, right = st.columns([1, 9])
 with left:
-    st.image("logoo.png", width=64)
+    st.image("logoo.png", width=100)
 with right:
     st.markdown("# Gene2Therapy")
     st.caption("Gene → Enrichment → Disease → Drug repurposing")
