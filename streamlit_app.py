@@ -24,7 +24,7 @@ import networkx as nx
 # App Config / Theming
 # ----------------------------
 st.set_page_config(
-    page_title="BioContext – Gene → Enrichment → Disease → Drugs",
+    page_title="BioContext – Gene2Therapy",
     layout="wide",
     page_icon="🧬",
 )
