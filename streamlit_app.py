@@ -19,6 +19,16 @@ from Bio import Entrez
 import plotly.express as px
 import plotly.graph_objects as go
 import networkx as nx
+from PIL import Image
+
+logo = Image.open("logo.png")
+
+st.set_page_config(
+    page_title="BioContext – Gene2Therapy",
+    layout="wide",
+    page_icon=logo,
+)
+
 
 # ----------------------------
 # App Config / Theming
