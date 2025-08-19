@@ -1,7 +1,9 @@
-# streamlit_app.py (enhanced)
+# streamlit_app.py (fixed & enhanced)
 # -------------------------------------------------------------
 # Adds: Disease links (OpenTargets), Drug repurposing suggestions,
 # and interactive visualizations. Original functionality preserved.
+# Fixes: OpenTargets queries (use `search`, correct knownDrugs fields),
+#        robust GraphQL error handling, minor UI hardening.
 # -------------------------------------------------------------
 
 import io
@@ -114,39 +116,41 @@ def kegg_pathway_name(pathway_id: str) -> str | None:
     return None
 
 # ----------------------------
-# New: OpenTargets helpers (No API key needed)
+# OpenTargets helpers (No API key needed) – FIXED
 # ----------------------------
 OT_GQL = "https://api.platform.opentargets.org/api/v4/graphql"
 
 @st.cache_data(ttl=3600)
 def ot_query(query: str, variables: dict | None = None) -> dict:
-    headers = {"Content-Type": "application/json"}
-    payload = {"query": query, "variables": variables or {}}
-    r = requests.post(OT_GQL, headers=headers, data=json.dumps(payload), timeout=40)
-    r.raise_for_status()
-    return r.json()
+    """GraphQL caller that returns {} on HTTP/GraphQL errors (keeps UI running)."""
+    try:
+        r = requests.post(OT_GQL, json={"query": query, "variables": variables or {}}, timeout=40)
+        data = r.json()
+        if r.status_code >= 400 or (isinstance(data, dict) and data.get("errors") and not data.get("data")):
+            return {}
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
 @st.cache_data(ttl=3600)
 def ot_target_from_symbol(symbol: str, species: str = "Homo sapiens") -> dict | None:
-    # Search target by symbol, return Ensembl ID + approved symbol
+    """Map a gene symbol to a target via top-level `search` (entityNames=["target"])."""
     q = """
-    query TargetSearch($q: String!, $species: [String!]) {
-      targetSearch(queryString: $q, species: $species) {
-        hits {
-          id
-          approvedSymbol
-          approvedName
-        }
+    query FindTarget($q: String!) {
+      search(queryString: $q, entityNames: ["target"], page: {index: 0, size: 5}) {
+        hits { id name entity }
       }
     }
     """
-    data = ot_query(q, {"q": symbol, "species": [species]})
-    hits = (((data or {}).get("data", {})).get("targetSearch", {}) or {}).get("hits", [])
-    return hits[0] if hits else None
+    data = ot_query(q, {"q": symbol})
+    hits = (((data or {}).get("data", {})).get("search", {}) or {}).get("hits", [])
+    for h in hits:
+        if h.get("entity") == "target":
+            return {"id": h.get("id"), "approvedSymbol": h.get("name")}
+    return None
 
 @st.cache_data(ttl=3600)
 def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
-    # Get top associated diseases for a target
     q = """
     query Associations($id: String!, $size: Int!) {
       target(ensemblId: $id) {
@@ -166,27 +170,23 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
             "target": ensembl_id,
             "disease_id": d.get("id"),
             "disease_name": d.get("name"),
-            "association_score": r.get("score")
+            "association_score": r.get("score"),
         })
     return pd.DataFrame(out)
 
 @st.cache_data(ttl=3600)
 def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
-    # Get drugs (evidence via knownDrugs)
+    """Known drugs for a target with fields available in OT v4 schema."""
     q = """
     query KnownDrugs($id: String!, $size: Int!) {
       target(ensemblId: $id) {
         id
         knownDrugs(size: $size) {
           rows {
-            drug {
-              id
-              name
-            }
             phase
-            indicationCount
             mechanismOfAction
-            diseases { id name }
+            drug { id name }
+            disease { id name }
           }
         }
       }
@@ -196,15 +196,15 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
     rows = (((data or {}).get("data", {})).get("target", {}) or {}).get("knownDrugs", {}).get("rows", [])
     out = []
     for r in rows:
-        dis = r.get("diseases", []) or []
+        drug_obj = r.get("drug") or {}
+        disease_obj = r.get("disease") or {}
         out.append({
             "target": ensembl_id,
-            "drug_id": (r.get("drug") or {}).get("id"),
-            "drug_name": (r.get("drug") or {}).get("name"),
+            "drug_id": drug_obj.get("id"),
+            "drug_name": drug_obj.get("name"),
             "phase": r.get("phase"),
-            "indication_count": r.get("indicationCount"),
             "moa": r.get("mechanismOfAction"),
-            "diseases": "; ".join(sorted({d.get("name") for d in dis if d.get("name")}))
+            "diseases": "; ".join(filter(None, [disease_obj.get("name")])),
         })
     return pd.DataFrame(out)
 
@@ -298,7 +298,7 @@ def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens")
     for g in genes:
         hit = ot_target_from_symbol(g, species)
         if hit:
-            g2t[g] = hit  # contains id (Ensembl), approvedSymbol, approvedName
+            g2t[g] = hit  # contains id (Ensembl), approvedSymbol
         time.sleep(0.05)
     return g2t
 
@@ -332,7 +332,7 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
         time.sleep(0.05)
     if frames:
         return pd.concat(frames, ignore_index=True)
-    return pd.DataFrame(columns=["gene", "target", "drug_id", "drug_name", "phase", "indication_count", "moa", "diseases"])
+    return pd.DataFrame(columns=["gene", "target", "drug_id", "drug_name", "phase", "moa", "diseases"])
 
 # ----------------------------
 # UI – Input controls (original + minor polish)
@@ -512,7 +512,7 @@ if run_btn:
         # Sankey: Genes → Diseases (top 10) → (optional) Drugs
         with colA:
             try:
-                if not df_dis.empty:
+                if 'df_dis' in locals() and not df_dis.empty:
                     aggD = (
                         df_dis.groupby("disease_name").agg(n_genes=("gene", lambda s: len(set(s)))).reset_index()
                         .sort_values("n_genes", ascending=False).head(10)
@@ -525,9 +525,7 @@ if run_btn:
                     # Optional: include drugs if available
                     drugs_set = []
                     if 'df_drugs' in locals() and not df_drugs.empty:
-                        # only for genes in genes_set
                         tmp = df_drugs[df_drugs['gene'].isin(genes_set)].copy()
-                        # take top by phase per gene
                         tmp['phase_rank'] = tmp['phase'].map({None:0,1:1,2:2,3:3,4:4}).fillna(0)
                         tmp = tmp.sort_values('phase_rank', ascending=False)
                         drugs_set = sorted(set(tmp.head(100)['drug_name']))[:15]
