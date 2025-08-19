@@ -29,16 +29,6 @@ st.set_page_config(
     page_icon=logo,
 )
 
-
-# ----------------------------
-# App Config / Theming
-# ----------------------------
-st.set_page_config(
-    page_title="BioContext – Gene2Therapy",
-    layout="wide",
-    page_icon="🧬",
-)
-
 st.markdown(
     """
     <style>
@@ -371,7 +361,7 @@ universe_size = st.number_input(
 
 uploaded = st.file_uploader("Upload gene list (.csv or .txt). If CSV, gene symbols must be in the first column.", type=["csv", "txt"])
 
-run_btn = st.button("Run Annotation + Enrichment", type="primary", disabled=not uploaded or not email)
+run_btn = st.button("Analyze", type="primary", disabled=not uploaded or not email)
 
 # ----------------------------
 # Results Tabs
