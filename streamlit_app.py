@@ -373,7 +373,7 @@ meta_tab, enrich_tab, disease_tab, drug_tab, viz_tab = st.tabs([
 ])
 
 def load_genes_from_any(uploaded_file) -> list[str]:
-    """Return up to the first 200 unique gene symbols, preferring 'Gene.symbol' or 'Symbol'."""
+    """Return up to the first 50 unique gene symbols, preferring 'Gene.symbol' or 'Symbol'."""
     name = (uploaded_file.name or "").lower()
 
     def _clean(series: pd.Series) -> list[str]:
@@ -388,7 +388,7 @@ def load_genes_from_any(uploaded_file) -> list[str]:
             if v and v not in seen:
                 seen.add(v)
                 out.append(v)
-        return out[:200]  # cap at 200
+        return out[:50]  # cap at 200
 
     # Try dataframe-like formats first
     try:
