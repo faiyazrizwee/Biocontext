@@ -358,7 +358,10 @@ universe_size = st.number_input(
     help="Used for hypergeometric p-values. ~20,000 is a common default for human protein-coding genes."
 )
 
-uploaded = st.file_uploader("Upload gene list (.csv or .txt). If CSV, gene symbols must be in the first column.", type=["csv", "txt"])
+uploaded = st.file_uploader(
+    "Upload gene list (.csv, .tsv, .txt, .xlsx). If a table, I’ll use the 'Gene.symbol' or 'Symbol' column.",
+    type=["csv", "tsv", "txt", "xlsx"]
+)
 
 run_btn = st.button("Analyze", type="primary", disabled=not uploaded or not email)
 
@@ -369,20 +372,73 @@ meta_tab, enrich_tab, disease_tab, drug_tab, viz_tab = st.tabs([
     "1) Metadata", "2) Enrichment", "3) Disease Links", "4) Drug Suggestions", "5) Visualize"
 ])
 
+def load_genes_from_any(uploaded_file) -> list[str]:
+    """Return up to the first 200 unique gene symbols, preferring 'Gene.symbol' or 'Symbol'."""
+    name = (uploaded_file.name or "").lower()
+
+    def _clean(series: pd.Series) -> list[str]:
+        vals = (
+            series.dropna()
+                  .astype(str)
+                  .str.strip()
+                  .str.upper()
+        )
+        seen, out = set(), []
+        for v in vals:
+            if v and v not in seen:
+                seen.add(v)
+                out.append(v)
+        return out[:200]  # cap at 200
+
+    # Try dataframe-like formats first
+    try:
+        if name.endswith((".csv", ".csv.gz")):
+            df = pd.read_csv(uploaded_file, compression="infer")
+        elif name.endswith((".tsv", ".tsv.gz")):
+            df = pd.read_csv(uploaded_file, sep="\t", compression="infer")
+        elif name.endswith((".xlsx", ".xls")):
+            df = pd.read_excel(uploaded_file)
+        else:
+            df = None
+
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            # case-insensitive header match
+            lower_map = {str(c).lower(): c for c in df.columns}
+            target_col = None
+            for key in ("gene.symbol", "symbol"):
+                if key in lower_map:
+                    target_col = lower_map[key]
+                    break
+            if target_col is None:
+                target_col = df.columns[0]  # fall back to the first column
+            return _clean(df[target_col])
+    except Exception:
+        pass  # fall back to line-based parsing
+
+    # Plain-text list (one gene per line)
+    try:
+        raw = uploaded_file.read()
+        text = raw.decode("utf-8", errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
+        return _clean(pd.Series([ln for ln in (t.strip() for t in text.splitlines()) if ln]))
+    except Exception:
+        return []
+
+
 if run_btn:
     # -------- Load genes --------
     try:
-        ext = uploaded.name.lower().split(".")[-1]
-        if ext == "csv":
-            df_in = pd.read_csv(uploaded)
-            genes = df_in.iloc[:, 0].dropna().astype(str).str.strip().str.upper().unique().tolist()
-        else:
-            text = uploaded.read().decode("utf-8", errors="ignore")
-            genes = [line.strip().upper() for line in text.splitlines() if line.strip()]
-        st.success(f"Loaded {len(genes)} genes.")
+        genes = load_genes_from_any(uploaded)
+        if not genes:
+            st.error(
+                "Could not parse any genes. Make sure the file has a 'Gene.symbol' or 'Symbol' column, "
+                "or a single-column list of gene symbols."
+            )
+            st.stop()
+        st.success(f"Loaded {len(genes)} genes (using up to the first 200).")
     except Exception as e:
         st.error(f"Could not read file: {e}")
         st.stop()
+
 
     # -------- Step 1: Metadata --------
     with meta_tab:
