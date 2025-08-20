@@ -281,7 +281,8 @@ def compute_enrichment(pathway_to_genes: dict, gene_list: list[str], kegg_org_pr
             "Pathway_ID": pid.replace("path:", ""),
             "Pathway_Name": pname,
             "Count": count,
-            "Genes": ";".join(sorted(genes))
+            "Genes": ";".join(sorted(genes)),
+            "PValue": pval
         })
     df = pd.DataFrame(rows)
     if not df.empty:
