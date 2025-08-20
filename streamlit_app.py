@@ -434,7 +434,7 @@ if run_btn:
                 "or a single-column list of gene symbols."
             )
             st.stop()
-        st.success(f"Loaded {len(genes)} genes (using up to the first 200).")
+        st.success(f"Loaded {len(genes)} genes.")
     except Exception as e:
         st.error(f"Could not read file: {e}")
         st.stop()
