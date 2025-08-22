@@ -73,7 +73,9 @@ def load_genes_from_any(uploaded_file) -> list[str]:
             if v and v not in seen:
                 seen.add(v)
                 out.append(v)
-        return out[:200]  # cap at 200
+            if len(out) >= 200:
+                break
+        return out
 
     # Try dataframe-like formats first
     try:
@@ -103,7 +105,8 @@ def load_genes_from_any(uploaded_file) -> list[str]:
     try:
         raw = uploaded_file.read()
         text = raw.decode("utf-8", errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
-        return _clean(pd.Series([ln for ln in (t.strip() for t in text.splitlines()) if ln]))
+        lines = [ln for ln in (t.strip() for t in text.splitlines()) if ln]
+        return _clean(pd.Series(lines))
     except Exception:
         return []
 
@@ -197,7 +200,6 @@ def ot_query(query: str, variables: dict | None = None) -> dict:
 
 @st.cache_data(ttl=3600)
 def ot_target_from_symbol(symbol: str, species: str = "Homo sapiens") -> dict | None:
-    # Use top-level 'search' to find targets by symbol
     q = """
     query FindTarget($q: String!) {
       search(queryString: $q, entityNames: ["target"], page: {index: 0, size: 5}) {
@@ -429,13 +431,10 @@ manual_input = st.text_area(
     placeholder="e.g. TP53, BRCA1, EGFR, MYC"
 )
 
-# Combine input sources
-genes_from_input = []
-if uploaded is not None:
-    genes_from_input = load_genes_from_any(uploaded)
-elif manual_input.strip():
+# Combine input sources (prefer manual when provided)
+genes_from_input: list[str] = []
+if manual_input.strip():
     raw = manual_input.replace(",", "\n").replace(" ", "\n")
-    # clean + cap at 200
     seen = set()
     cleaned = []
     for g in raw.splitlines():
@@ -446,6 +445,8 @@ elif manual_input.strip():
         if len(cleaned) >= 200:
             break
     genes_from_input = cleaned
+elif uploaded is not None:
+    genes_from_input = load_genes_from_any(uploaded)
 
 run_btn = st.button(
     "Analyze",
