@@ -24,7 +24,7 @@ import networkx as nx
 # ----------------------------
 st.set_page_config(
     page_title="Gene2Therapy – BioContext",
-    page_icon="logoo.png",   # ensure logo.png sits next to this file
+    page_icon="logoo.png",   # ensure logoo.png sits next to this file
     layout="wide",
 )
 
@@ -49,6 +49,63 @@ with left:
 with right:
     st.markdown("# Gene2Therapy")
     st.caption("Gene → Enrichment → Disease → Drug repurposing")
+
+# ----------------------------
+# Helper: load genes from any supported input (define BEFORE using)
+# ----------------------------
+def load_genes_from_any(uploaded_file) -> list[str]:
+    """
+    Read genes from CSV/TSV/XLSX/TXT.
+    Prefer columns named 'Gene.symbol' or 'Symbol' (case-insensitive).
+    Returns up to the first 200 unique, cleaned symbols (uppercased).
+    """
+    name = (uploaded_file.name or "").lower()
+
+    def _clean(series: pd.Series) -> list[str]:
+        vals = (
+            series.dropna()
+                  .astype(str)
+                  .str.strip()
+                  .str.upper()
+        )
+        seen, out = set(), []
+        for v in vals:
+            if v and v not in seen:
+                seen.add(v)
+                out.append(v)
+        return out[:200]  # cap at 200
+
+    # Try dataframe-like formats first
+    try:
+        if name.endswith((".csv", ".csv.gz")):
+            df = pd.read_csv(uploaded_file, compression="infer")
+        elif name.endswith((".tsv", ".tsv.gz")):
+            df = pd.read_csv(uploaded_file, sep="\t", compression="infer")
+        elif name.endswith((".xlsx", ".xls")):
+            df = pd.read_excel(uploaded_file)
+        else:
+            df = None
+
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            lower_map = {str(c).lower(): c for c in df.columns}
+            target_col = None
+            for key in ("gene.symbol", "symbol"):
+                if key in lower_map:
+                    target_col = lower_map[key]
+                    break
+            if target_col is None:
+                target_col = df.columns[0]  # fall back to first column
+            return _clean(df[target_col])
+    except Exception:
+        pass  # fall back to plain text parsing
+
+    # Plain-text list (one gene per line)
+    try:
+        raw = uploaded_file.read()
+        text = raw.decode("utf-8", errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
+        return _clean(pd.Series([ln for ln in (t.strip() for t in text.splitlines()) if ln]))
+    except Exception:
+        return []
 
 # ----------------------------
 # Sidebar
@@ -337,7 +394,7 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
 # ----------------------------
 # UI – Inputs
 # ----------------------------
-st.markdown("Upload a gene list (CSV or TXT), select organism, and download annotated results + enrichment. Then explore disease links and repurposable drugs.")
+st.markdown("Upload a gene list (CSV/TSV/XLSX/TXT) or paste genes, then download annotations and enrichment. Explore disease links and repurposable drugs.")
 
 email = st.text_input("NCBI Entrez email (required)", value="", help="NCBI asks for a contact email for E-Utilities.")
 if email:
@@ -358,12 +415,43 @@ universe_size = st.number_input(
     help="Used for hypergeometric p-values. ~20,000 is a common default for human protein-coding genes."
 )
 
+st.markdown("### Input Options")
+
+# Option 1: File upload
 uploaded = st.file_uploader(
-    "Upload gene list (.csv, .tsv, .txt, .xlsx). If a table, I’ll use the 'Gene.symbol' or 'Symbol' column.",
+    "Upload gene list (.csv, .tsv, .txt, .xlsx). If a table, I'll use the 'Gene.symbol' or 'Symbol' column.",
     type=["csv", "tsv", "txt", "xlsx"]
 )
 
-run_btn = st.button("Analyze", type="primary", disabled=not uploaded or not email)
+# Option 2: Manual input
+manual_input = st.text_area(
+    "Or paste gene symbols here (comma, space, or newline separated):",
+    placeholder="e.g. TP53, BRCA1, EGFR, MYC"
+)
+
+# Combine input sources
+genes_from_input = []
+if uploaded is not None:
+    genes_from_input = load_genes_from_any(uploaded)
+elif manual_input.strip():
+    raw = manual_input.replace(",", "\n").replace(" ", "\n")
+    # clean + cap at 200
+    seen = set()
+    cleaned = []
+    for g in raw.splitlines():
+        gg = g.strip().upper()
+        if gg and gg not in seen:
+            seen.add(gg)
+            cleaned.append(gg)
+        if len(cleaned) >= 200:
+            break
+    genes_from_input = cleaned
+
+run_btn = st.button(
+    "Analyze",
+    type="primary",
+    disabled=(not genes_from_input or not email)
+)
 
 # ----------------------------
 # Tabs
@@ -372,62 +460,10 @@ meta_tab, enrich_tab, disease_tab, drug_tab, viz_tab = st.tabs([
     "1) Metadata", "2) Enrichment", "3) Disease Links", "4) Drug Suggestions", "5) Visualize"
 ])
 
-def load_genes_from_any(uploaded_file) -> list[str]:
-    """Return up to the first 50 unique gene symbols, preferring 'Gene.symbol' or 'Symbol'."""
-    name = (uploaded_file.name or "").lower()
-
-    def _clean(series: pd.Series) -> list[str]:
-        vals = (
-            series.dropna()
-                  .astype(str)
-                  .str.strip()
-                  .str.upper()
-        )
-        seen, out = set(), []
-        for v in vals:
-            if v and v not in seen:
-                seen.add(v)
-                out.append(v)
-        return out[:50]  # cap at 200
-
-    # Try dataframe-like formats first
-    try:
-        if name.endswith((".csv", ".csv.gz")):
-            df = pd.read_csv(uploaded_file, compression="infer")
-        elif name.endswith((".tsv", ".tsv.gz")):
-            df = pd.read_csv(uploaded_file, sep="\t", compression="infer")
-        elif name.endswith((".xlsx", ".xls")):
-            df = pd.read_excel(uploaded_file)
-        else:
-            df = None
-
-        if isinstance(df, pd.DataFrame) and not df.empty:
-            # case-insensitive header match
-            lower_map = {str(c).lower(): c for c in df.columns}
-            target_col = None
-            for key in ("gene.symbol", "symbol"):
-                if key in lower_map:
-                    target_col = lower_map[key]
-                    break
-            if target_col is None:
-                target_col = df.columns[0]  # fall back to the first column
-            return _clean(df[target_col])
-    except Exception:
-        pass  # fall back to line-based parsing
-
-    # Plain-text list (one gene per line)
-    try:
-        raw = uploaded_file.read()
-        text = raw.decode("utf-8", errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
-        return _clean(pd.Series([ln for ln in (t.strip() for t in text.splitlines()) if ln]))
-    except Exception:
-        return []
-
-
 if run_btn:
     # -------- Load genes --------
     try:
-        genes = load_genes_from_any(uploaded)
+        genes = genes_from_input
         if not genes:
             st.error(
                 "Could not parse any genes. Make sure the file has a 'Gene.symbol' or 'Symbol' column, "
@@ -436,9 +472,8 @@ if run_btn:
             st.stop()
         st.success(f"Loaded {len(genes)} genes.")
     except Exception as e:
-        st.error(f"Could not read file: {e}")
+        st.error(f"Could not read input: {e}")
         st.stop()
-
 
     # -------- Step 1: Metadata --------
     with meta_tab:
