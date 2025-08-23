@@ -390,7 +390,7 @@ kegg_org_prefix = organisms[org_label]["kegg"]
 
 st.markdown("#### Input Options")
 uploaded = st.file_uploader(
-    "Upload gene list (.csv, .tsv, .txt, .xlsx). If a table, I'll use the 'Gene.symbol' or 'Symbol' column.",
+    "Upload gene list - csv, tsv, txt, xlsx",
     type=["csv", "tsv", "txt", "xlsx"]
 )
 manual_input = st.text_area(
@@ -416,7 +416,7 @@ st.divider()
 # Tabs
 # ----------------------------
 meta_tab, enrich_tab, disease_tab, drug_tab, viz_tab = st.tabs([
-    "1) 🧬 Metadata", "2) 📊 Enrichment", "3) 🧠 Disease Links", "4) 💊 Drug Suggestions", "5) 📈 Visualize"
+    "1) Metadata", "2) Enrichment", "3) Disease Links", "4) Drug Suggestions", "5) Visualize"
 ])
 
 if run_btn:
@@ -526,7 +526,7 @@ if run_btn:
         if df_drugs.empty:
             st.info("No drugs found for the mapped targets.")
         else:
-            # Rank per-row by phase (robust cast), then aggregate; no max_phase_rank column shown
+            # Rank per-row by phase (robust cast), then aggregate
             df_drugs["phase_rank"] = pd.to_numeric(df_drugs["phase"], errors="coerce").fillna(0).astype(int)
 
             drug_sum = (
@@ -539,12 +539,18 @@ if run_btn:
                 ).reset_index()
             )
 
+            # Cast, sort, and add 'approved' column (max_phase >= 4)
             drug_sum["max_phase"] = pd.to_numeric(drug_sum["max_phase"], errors="coerce").fillna(0).astype(int)
-            drug_sum = drug_sum.sort_values(["max_phase", "drug_name"], ascending=[False, True])
+            drug_sum["approved"] = drug_sum["max_phase"] >= 4
+            drug_sum = drug_sum.sort_values(["approved", "max_phase", "drug_name"], ascending=[False, False, True])
 
+            # Display (with a serial '#')
             showRx = drug_sum.copy()
             showRx.insert(0, "#", range(1, len(showRx) + 1))
-            st.dataframe(showRx, use_container_width=True, hide_index=True)
+            # Optional: order a few key columns
+            cols_order = [c for c in ["#", "drug_id", "drug_name", "targets", "genes", "indications", "moa", "max_phase", "approved"] if c in showRx.columns]
+            other_cols = [c for c in showRx.columns if c not in cols_order]
+            st.dataframe(showRx[cols_order + other_cols], use_container_width=True, hide_index=True)
 
             st.download_button(
                 "⬇️ Download drug suggestions (per target)",
