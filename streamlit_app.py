@@ -2,7 +2,7 @@
 # -------------------------------------------------------------
 # Gene2Therapy
 # Gene list → KEGG enrichment (counts-only) → Disease links (OpenTargets)
-# → Drug repurposing → Visualizations
+# → Drug repurposing + PK/PD + approval status → Visualizations
 # -------------------------------------------------------------
 
 import time
@@ -26,7 +26,6 @@ st.set_page_config(
     page_icon="logoo.png",
     layout="wide",
 )
-
 st.markdown(
     """
     <style>
@@ -237,6 +236,7 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
         d = r.get("disease", {})
         out.append({
             "target": ensembl_id,
+            "drug_target_ensembl": ensembl_id,
             "disease_id": d.get("id"),
             "disease_name": d.get("name"),
             "association_score": r.get("score"),
@@ -271,10 +271,128 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
             "drug_id": drug_obj.get("id"),
             "drug_name": drug_obj.get("name"),
             "phase": r.get("phase"),
-            "moa": r.get("mechanismOfAction"),
+            "moa": r.get("mechanismOfAction"),  # PD proxy
             "diseases": "; ".join(filter(None, [disease_obj.get("name")])),
         })
     return pd.DataFrame(out)
+
+# ----------------------------
+# PK / Approval enrichment
+# ----------------------------
+@st.cache_data(ttl=3600)
+def chembl_find_molecule(drug_name: str) -> dict | None:
+    """Find ChEMBL molecule by name/synonym; return key fields."""
+    try:
+        # Try exact preferred name first
+        r = SESSION.get(
+            "https://www.ebi.ac.uk/chembl/api/data/molecule.json",
+            params={"pref_name__iexact": drug_name, "limit": 1},
+            timeout=30,
+        )
+        js = r.json()
+        if js.get("page_meta", {}).get("total_count", 0) == 0:
+            # Fallback: full-text search
+            r = SESSION.get(
+                "https://www.ebi.ac.uk/chembl/api/data/molecule/search.json",
+                params={"q": drug_name, "limit": 1},
+                timeout=30,
+            )
+            js = r.json()
+            hits = js.get("molecules", [])
+            if not hits:
+                return None
+            mid = hits[0]["molecule_chembl_id"]
+        else:
+            mid = js["molecules"][0]["molecule_chembl_id"]
+
+        # Get details
+        r = SESSION.get(f"https://www.ebi.ac.uk/chembl/api/data/molecule/{mid}.json", timeout=30)
+        m = r.json()
+        return {
+            "chembl_id": mid,
+            "chembl_max_phase": m.get("max_phase"),
+            "chembl_first_approval": m.get("first_approval"),
+            "chembl_atc": "; ".join(m.get("atc_classifications") or []),
+            "chembl_roa": "; ".join(m.get("dosage_form") or []) if isinstance(m.get("dosage_form"), list) else m.get("dosage_form"),
+        }
+    except Exception:
+        return None
+
+@st.cache_data(ttl=3600)
+def pkdb_half_life(drug_name: str) -> float | None:
+    """
+    Try to fetch an elimination half-life (hours) from PK-DB.
+    Returns a single representative value (median) if any, else None.
+    """
+    try:
+        # Find compound
+        r = SESSION.get("https://pk-db.com/api/compounds/", params={"search": drug_name}, timeout=30)
+        data = r.json()
+        results = data.get("results") or []
+        if not results:
+            return None
+        comp_id = results[0].get("id")
+        if not comp_id:
+            return None
+
+        # Pull parameters for this compound - filter by half-life if possible
+        r = SESSION.get("https://pk-db.com/api/parameters/", params={"compound": comp_id, "name": "half-life"}, timeout=30)
+        params = r.json().get("results") or []
+        vals = []
+        for p in params:
+            val = p.get("value")
+            unit = (p.get("unit") or "").lower()
+            if val is None:
+                continue
+            # PK-DB usually stores half-life in hours; if not, naive conversion for minutes
+            if "hour" in unit:
+                vals.append(float(val))
+            elif "min" in unit:
+                vals.append(float(val) / 60.0)
+        if not vals:
+            return None
+        return float(pd.Series(vals).median())
+    except Exception:
+        return None
+
+@st.cache_data(ttl=3600)
+def enrich_drugs_with_pk_and_approval(df_drugs: pd.DataFrame) -> pd.DataFrame:
+    """
+    Merge per-drug ChEMBL approval info and PK-DB half-life into the per-target drug rows.
+    """
+    if df_drugs.empty:
+        return df_drugs
+
+    # Build per-drug lookup once
+    unique_drugs = sorted(set(df_drugs["drug_name"].dropna().astype(str)))
+    records = []
+    for name in unique_drugs:
+        chem = chembl_find_molecule(name) or {}
+        t12 = pkdb_half_life(name)
+        records.append({
+            "drug_name": name,
+            "chembl_id": chem.get("chembl_id"),
+            "chembl_max_phase": chem.get("chembl_max_phase"),
+            "chembl_first_approval": chem.get("chembl_first_approval"),
+            "chembl_atc": chem.get("chembl_atc"),
+            "chembl_roa": chem.get("chembl_roa"),
+            "pk_half_life_h": t12,
+        })
+        time.sleep(0.05)
+
+    info = pd.DataFrame.from_records(records)
+    out = df_drugs.merge(info, on="drug_name", how="left")
+
+    # Flags: approved / clinically tested
+    def _approved(row):
+        return bool((row.get("phase") and int(row["phase"]) >= 4) or (row.get("chembl_first_approval")))
+    def _clin(row):
+        return bool((row.get("phase") and int(row["phase"]) >= 1) or (row.get("chembl_max_phase") and int(row["chembl_max_phase"]) >= 1))
+
+    out["approved"] = out.apply(_approved, axis=1)
+    out["clinically_tested"] = out.apply(_clin, axis=1)
+
+    return out
 
 # ----------------------------
 # Core functions
@@ -329,7 +447,7 @@ def compute_enrichment_counts_only(pathway_to_genes: dict):
     return df
 
 # ----------------------------
-# OpenTargets cohort functions
+# Cohort-level OpenTargets: mapping, diseases, drugs
 # ----------------------------
 @st.cache_data(ttl=3600)
 def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens") -> dict:
@@ -355,7 +473,7 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
         time.sleep(0.05)
     if frames:
         return pd.concat(frames, ignore_index=True)
-    return pd.DataFrame(columns=["gene", "target", "disease_id", "disease_name", "association_score"])
+    return pd.DataFrame(columns=["gene", "drug_target_ensembl", "disease_id", "disease_name", "association_score"])
 
 @st.cache_data(ttl=3600)
 def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
@@ -376,7 +494,7 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
 # ----------------------------
 # UI – Inputs
 # ----------------------------
-st.markdown("Upload a gene list (CSV/TSV/XLSX/TXT) or paste genes, then download annotations and enrichment. Explore disease links and repurposable drugs.")
+st.markdown("Upload a gene list (CSV/TSV/XLSX/TXT) or paste genes, then download annotations and enrichment. Explore disease links and repurposable drugs. Now with PK/PD and approval flags.")
 
 email = st.text_input("NCBI Entrez email (required)", value="", help="NCBI asks for a contact email for E-Utilities.")
 if email:
@@ -401,7 +519,6 @@ manual_input = st.text_area(
     placeholder="e.g. TP53, BRCA1, EGFR, MYC",
 )
 
-# Combine input sources (prefer manual when provided)
 genes_from_input: list[str] = []
 if manual_input.strip():
     raw = manual_input.replace(",", "\n").replace(" ", "\n")
@@ -424,7 +541,7 @@ run_btn = st.button("Analyze", type="primary", disabled=(not genes_from_input or
 # Tabs
 # ----------------------------
 meta_tab, enrich_tab, disease_tab, drug_tab, viz_tab = st.tabs([
-    "1) Metadata", "2) Enrichment", "3) Disease Links", "4) Drug Suggestions", "5) Visualize"
+    "1) Metadata", "2) Enrichment", "3) Disease Links", "4) Drug Suggestions (PK/PD + Approval)", "5) Visualize"
 ])
 
 if run_btn:
@@ -471,7 +588,7 @@ if run_btn:
             except Exception:
                 pass
 
-    # Step 3: Disease Links (no p-values in display)
+    # Step 3: Disease Links
     with disease_tab:
         st.subheader("Step 3 — Disease Associations (OpenTargets)")
         with st.spinner("Mapping symbols to targets and fetching disease links..."):
@@ -502,47 +619,80 @@ if run_btn:
                 file_name="disease_summary_aggregated.csv",
                 mime="text/csv",
             )
-            try:
-                topD = agg.head(20)
-                figd = px.bar(topD, x="n_genes", y="disease_name", orientation="h",
-                              title="Top disease associations (by #genes)")
-                figd.update_layout(height=650)
-                st.plotly_chart(figd, use_container_width=True)
-            except Exception:
-                pass
 
-    # Step 4: Drug Suggestions
+    # Step 4: Drug Suggestions + PK/PD + Approval
     with drug_tab:
-        st.subheader("Step 4 — Repurposable Drug Suggestions")
+        st.subheader("Step 4 — Repurposable Drugs (with PK/PD and Approval Status)")
         with st.spinner("Fetching known drugs targeting your genes..."):
-            df_drugs = collect_drug_suggestions(g2t)
+            df_drugs_raw = collect_drug_suggestions(g2t)
+            df_drugs = enrich_drugs_with_pk_and_approval(df_drugs_raw)
+
         if df_drugs.empty:
             st.info("No drugs found for the mapped targets.")
         else:
-            phase_rank = {None: 0, 1: 1, 2: 2, 3: 3, 4: 4}
-            df_drugs["phase_rank"] = df_drugs["phase"].map(phase_rank).fillna(0)
+            # Rank: Approved first, then by highest phase (from OT), then by ChEMBL max phase, then name
+            df_drugs["phase_rank"] = df_drugs["phase"].fillna(0).astype(int)
+            df_drugs["chembl_phase_rank"] = df_drugs["chembl_max_phase"].fillna(0).astype(int)
+            df_drugs = df_drugs.sort_values(
+                ["approved", "phase_rank", "chembl_phase_rank", "drug_name"],
+                ascending=[False, False, False, True]
+            )
+
+            # Aggregated per drug (targets/genes collapsed)
             drug_sum = (
                 df_drugs.groupby(["drug_id", "drug_name"]).agg(
                     targets=("target", lambda s: ";".join(sorted(set(s)))),
                     genes=("gene", lambda s: ";".join(sorted(set(s)))),
-                    max_phase=("phase", "max"),
-                    max_phase_rank=("phase_rank", "max"),
                     indications=("diseases", lambda s: "; ".join(sorted({x for x in "; ".join(s).split("; ") if x}))),
-                    moa=("moa", lambda s: "; ".join(sorted({x for x in s if x}))),
+                    moa=("moa", lambda s: "; ".join(sorted({x for x in s if x}))),  # PD
+                    max_phase=("phase", "max"),
+                    approved=("approved", "max"),
+                    clinically_tested=("clinically_tested", "max"),
+                    chembl_id=("chembl_id", "first"),
+                    chembl_first_approval=("chembl_first_approval", "first"),
+                    chembl_max_phase=("chembl_max_phase", "max"),
+                    chembl_atc=("chembl_atc", "first"),
+                    chembl_roa=("chembl_roa", "first"),
+                    pk_half_life_h=("pk_half_life_h", "median"),   # PK (if available)
                 ).reset_index()
-                 .sort_values(["max_phase_rank", "drug_name"], ascending=[False, True])
             )
-            st.dataframe(drug_sum.reset_index(drop=True), use_container_width=True, hide_index=True)
+
+            # Re-sort aggregated table similarly
+            drug_sum["phase_rank"] = drug_sum["max_phase"].fillna(0).astype(int)
+            drug_sum["chembl_phase_rank"] = drug_sum["chembl_max_phase"].fillna(0).astype(int)
+            drug_sum = drug_sum.sort_values(
+                ["approved", "clinically_tested", "phase_rank", "chembl_phase_rank", "drug_name"],
+                ascending=[False, False, False, False, True]
+            )
+
+            # Filters
+            colf1, colf2, colf3 = st.columns(3)
+            with colf1:
+                only_approved = st.checkbox("Only approved drugs", value=True)
+            with colf2:
+                include_clinical = st.checkbox("Include clinically tested (Phase ≥1)", value=True)
+            with colf3:
+                show_top_n = st.number_input("Show top N", min_value=5, max_value=200, value=50, step=5)
+
+            filt = drug_sum.copy()
+            if only_approved:
+                filt = filt[filt["approved"] == True]
+            elif include_clinical:
+                filt = filt[(filt["approved"] == True) | (filt["clinically_tested"] == True)]
+
+            st.markdown("**Recommended drugs (ranked)**")
+            st.dataframe(filt.head(int(show_top_n)).reset_index(drop=True), use_container_width=True, hide_index=True)
+
             st.download_button(
-                "Download drug suggestions (per target)",
+                "Download drug suggestions (per target, with PK/PD + approval)",
                 data=df_drugs.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_per_target.csv",
+                file_name="drug_suggestions_per_target_enriched.csv",
                 mime="text/csv",
             )
             st.download_button(
-                "Download drug suggestions (aggregated)",
+                "Download drug suggestions (aggregated, with PK/PD + approval)",
                 data=drug_sum.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_aggregated.csv",
+                file_name="drug_suggestions_aggregated_enriched.csv",
                 mime="text/csv",
             )
 
@@ -566,7 +716,7 @@ if run_btn:
                     drugs_set = []
                     if 'df_drugs' in locals() and not df_drugs.empty:
                         tmp = df_drugs[df_drugs['gene'].isin(genes_set)].copy()
-                        tmp['phase_rank'] = tmp['phase'].map({None:0,1:1,2:2,3:3,4:4}).fillna(0)
+                        tmp['phase_rank'] = tmp['phase'].fillna(0).astype(int)
                         tmp = tmp.sort_values('phase_rank', ascending=False)
                         drugs_set = sorted(set(tmp.head(100)['drug_name']))[:15]
 
@@ -584,7 +734,7 @@ if run_btn:
                             s = node_index[f"G: {row['gene']}"]
                             t = node_index.get(f"Rx: {row['drug_name']}")
                             if t is not None:
-                                links.append((s, t, max((row['phase'] or 0), 1)))
+                                links.append((s, t, max(int(row['phase'] or 0), 1)))
 
                     sources = [s for s,_,_ in links]
                     targets = [t for _,t,_ in links]
@@ -632,4 +782,4 @@ if run_btn:
                 st.warning(f"Network could not be drawn: {e}")
 
 st.markdown("---")
-st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL. Data is fetched live and cached for 1h. Validate findings with primary sources.")
+st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL, ChEMBL, PK-DB. Data is fetched live and cached for 1h. Validate findings with primary sources.")
