@@ -943,24 +943,34 @@ def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens")
     return g2t
 
 @st.cache_data(ttl=3600)
+# ----------------------------
+# Cohort-level OpenTargets: mapping, diseases, drugs
+# ----------------------------
+@st.cache_data(ttl=3600)
 def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
-    frames = []
+    frames: list[pd.DataFrame] = []
     for g, tgt in gene_to_target.items():
         tid = tgt.get("id")
         if not tid:
             continue
         df = ot_diseases_for_target(tid)
-        if not df.empty:
+        if isinstance(df, pd.DataFrame) and not df.empty:
             df.insert(0, "gene", g)
             frames.append(df)
         time.sleep(0.05)
+
     if frames:
         return pd.concat(frames, ignore_index=True)
-    return pd.DataFrame(columns=["gene", "target", "disease_id", "disease_name", "association_score"])
+
+    # fallback: empty dataframe with expected columns
+    return pd.DataFrame(
+        columns=["gene", "target", "disease_id", "disease_name", "association_score"]
+    )
+
 
 @st.cache_data(ttl=3600)
 def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
-    frames: list[pd.DataFrame] = []   # always initialize
+    frames: list[pd.DataFrame] = []
     for g, tgt in gene_to_target.items():
         tid = tgt.get("id")
         if not tid:
@@ -971,14 +981,69 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
             frames.append(df)
         time.sleep(0.05)
 
-    if frames:  # only concatenate if we have data
+    if frames:
         return pd.concat(frames, ignore_index=True)
 
-    # fallback: empty dataframe with proper columns
+    # fallback: empty dataframe with expected columns
     return pd.DataFrame(
         columns=["gene", "target", "drug_id", "drug_name", "phase", "moa", "diseases"]
     )
 
+
+# ----------------------------
+# UI – Inputs
+# ----------------------------
+st.markdown("Upload a gene list (CSV/TSV/XLSX/TXT) or paste genes, then download annotations and enrichment. Explore disease links and repurposable drugs.")
+
+email = st.text_input("NCBI Entrez email (required)", value="", help="NCBI asks for a contact email for E-Utilities.")
+if email:
+    Entrez.email = email
+
+organisms = {
+    "Homo sapiens (human)": {"entrez": "Homo sapiens", "kegg": "hsa"},
+    "Mus musculus (mouse)": {"entrez": "Mus musculus", "kegg": "mmu"},
+    "Rattus norvegicus (rat)": {"entrez": "Rattus norvegicus", "kegg": "rno"},
+}
+org_label = st.selectbox("Organism", list(organisms.keys()), index=0)
+organism_entrez = organisms[org_label]["entrez"]
+kegg_org_prefix = organisms[org_label]["kegg"]
+
+universe_size = st.number_input(
+    "Gene universe size for enrichment (approx.)",
+    min_value=1000, max_value=100000, value=20000, step=1000,
+    help="Used for hypergeometric p-values. ~20,000 is a common default for human protein-coding genes."
+)
+
+st.markdown("### Input Options")
+
+# Option 1: File upload
+uploaded = st.file_uploader(
+    "Upload gene list (.csv, .tsv, .txt, .xlsx). If a table, I'll use the 'Gene.symbol' or 'Symbol' column.",
+    type=["csv", "tsv", "txt", "xlsx"]
+)
+
+# Option 2: Manual input
+manual_input = st.text_area(
+    "Or paste gene symbols here (comma, space, or newline separated):",
+    placeholder="e.g. TP53, BRCA1, EGFR, MYC"
+)
+
+# Combine input sources (prefer manual when provided)
+genes_from_input: list[str] = []
+if manual_input.strip():
+    raw = manual_input.replace(",", "\n").replace(" ", "\n")
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for g in raw.splitlines():
+        gg = g.strip().upper()
+        if gg and gg not in seen:
+            seen.add(gg)
+            cleaned.append(gg)
+            if len(cleaned) >= 200:
+                break
+    genes_from_input = cleaned
+elif uploaded is not None:
+    genes_from_input = load_genes_from_any(uploaded)
 
 # ----------------------------
 # UI – Inputs
