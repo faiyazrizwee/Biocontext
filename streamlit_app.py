@@ -360,60 +360,30 @@ def hypergeom_pval(M: int, K: int, n: int, x: int) -> float:
         s += math.comb(K, i) * math.comb(M - K, n - i)
     return s / denom
 
-def bh_fdr(pvals: list[float]) -> list[float]:
-    """Benjamini–Hochberg FDR correction. Returns q-values ordered as input."""
-    m = len(pvals)
-    pairs = sorted([(p if (p is not None and p >= 0) else 1.0, i) for i, p in enumerate(pvals)], key=lambda x: x[0])
-    q = [0.0] * m
-    prev = 1.0
-    for rank, (p, idx) in enumerate(pairs, start=1):
-        val = min(p * m / rank, 1.0)
-        prev = min(prev, val)
-        q[idx] = prev
-    return q
 
 def compute_enrichment(pathway_to_genes: dict, gene_list: list[str], kegg_org_prefix: str, universe_size: int = 20000):
     """
-    Hypergeometric enrichment for each KEGG pathway that has >=1 gene hit.
-    Uses robust counting for K via retries. Also computes BH-FDR (q-value).
+    Simplified enrichment table: show the pathways hit by the input gene list,
+    with their hit counts and the matching genes. P-values are intentionally
+    omitted because KEGG pathway gene-universe sizes can be unreliable/empty,
+    which produced many None values.
     """
-    # Build K cache using robust counter
-    K_cache: dict[str, int | None] = {}
-    for pid in pathway_to_genes.keys():
-        pid_clean = pid.replace("path:", "")
-        K_cache[pid] = kegg_link_gene_count(pid_clean)
-
-    n = len(gene_list)
     rows = []
-    pvals_for_fdr = []
-
     for pid, genes in sorted(pathway_to_genes.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         count = len(genes)
         pname = kegg_pathway_name(pid) or ""
-        K = K_cache.get(pid, None)
-        pval = None
-        if K is not None and universe_size is not None and n > 0 and K > 0:
-            try:
-                pval = hypergeom_pval(universe_size, K, n, count)
-            except Exception:
-                pval = None
-
         rows.append({
             "Pathway_ID": pid.replace("path:", ""),
             "Pathway_Name": pname,
             "Count": count,
-            "Genes": ";".join(sorted(genes)),
-            "PValue": pval
+            "Genes": ";".join(sorted(genes))
         })
-        pvals_for_fdr.append(pval if pval is not None else 1.0)
 
     df = pd.DataFrame(rows)
     if not df.empty:
-        # Add BH-FDR q-values
-        df["QValue"] = bh_fdr(pvals_for_fdr)
-        # Order: by PValue then Count desc
-        df = df.sort_values(["PValue", "Count"], ascending=[True, False], na_position="last").reset_index(drop=True)
+        df = df.sort_values(["Count"], ascending=False).reset_index(drop=True)
     return df
+
 
 # ----------------------------
 # Cohort-level OpenTargets: mapping, diseases, drugs
