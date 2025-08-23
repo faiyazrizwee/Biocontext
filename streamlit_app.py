@@ -342,21 +342,30 @@ def build_gene_to_ot_target_map(genes, species="Homo sapiens")->dict:
 def collect_disease_links(gene_to_target, size:int)->pd.DataFrame:
     frames=[]
     for g,tgt in gene_to_target.items():
-        tid=tgt.get("id"); if not tid: continue
-        df=ot_diseases_for_target(tid, size=size)
-        if not df.empty: df.insert(0,"gene",g); frames.append(df)
+        tid = tgt.get("id")
+        if not tid:
+            continue
+        df = ot_diseases_for_target(tid, size=size)
+        if not df.empty:
+            df.insert(0,"gene",g)
+            frames.append(df)
         time.sleep(0.05)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
         columns=["gene","target","disease_id","disease_name","association_score"]
     )
 
+
 @st.cache_data(ttl=3600)
 def collect_drug_suggestions(gene_to_target, size:int)->pd.DataFrame:
     frames=[]
     for g,tgt in gene_to_target.items():
-        tid=tgt.get("id"); if not tid: continue
-        df=ot_drugs_for_target(tid, size=size)
-        if not df.empty: df.insert(0,"gene",g); frames.append(df)
+        tid = tgt.get("id")
+        if not tid:
+            continue
+        df = ot_drugs_for_target(tid, size=size)
+        if not df.empty:
+            df.insert(0,"gene",g)
+            frames.append(df)
         time.sleep(0.05)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
         columns=["gene","target","drug_id","drug_name","phase","moa","diseases"]
