@@ -21,11 +21,7 @@ from urllib3.util.retry import Retry
 # ----------------------------
 # App Config / Theming (must be FIRST Streamlit call)
 # ----------------------------
-st.set_page_config(
-    page_title="Gene2Therapy – BioContext",
-    page_icon="logoo.png",
-    layout="wide",
-)
+st.set_page_config(page_title="Gene2Therapy – BioContext", page_icon="logoo.png", layout="wide")
 st.markdown(
     """
     <style>
@@ -283,7 +279,6 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
 def chembl_find_molecule(drug_name: str) -> dict | None:
     """Find ChEMBL molecule by name/synonym; return key fields."""
     try:
-        # Try exact preferred name first
         r = SESSION.get(
             "https://www.ebi.ac.uk/chembl/api/data/molecule.json",
             params={"pref_name__iexact": drug_name, "limit": 1},
@@ -291,7 +286,6 @@ def chembl_find_molecule(drug_name: str) -> dict | None:
         )
         js = r.json()
         if js.get("page_meta", {}).get("total_count", 0) == 0:
-            # Fallback: full-text search
             r = SESSION.get(
                 "https://www.ebi.ac.uk/chembl/api/data/molecule/search.json",
                 params={"q": drug_name, "limit": 1},
@@ -305,7 +299,6 @@ def chembl_find_molecule(drug_name: str) -> dict | None:
         else:
             mid = js["molecules"][0]["molecule_chembl_id"]
 
-        # Get details
         r = SESSION.get(f"https://www.ebi.ac.uk/chembl/api/data/molecule/{mid}.json", timeout=30)
         m = r.json()
         return {
@@ -325,7 +318,6 @@ def pkdb_half_life(drug_name: str) -> float | None:
     Returns a single representative value (median) if any, else None.
     """
     try:
-        # Find compound
         r = SESSION.get("https://pk-db.com/api/compounds/", params={"search": drug_name}, timeout=30)
         data = r.json()
         results = data.get("results") or []
@@ -335,8 +327,11 @@ def pkdb_half_life(drug_name: str) -> float | None:
         if not comp_id:
             return None
 
-        # Pull parameters for this compound - filter by half-life
-        r = SESSION.get("https://pk-db.com/api/parameters/", params={"compound": comp_id, "name": "half-life"}, timeout=30)
+        r = SESSION.get(
+            "https://pk-db.com/api/parameters/",
+            params={"compound": comp_id, "name": "half-life"},
+            timeout=30,
+        )
         params = r.json().get("results") or []
         vals = []
         for p in params:
@@ -362,7 +357,6 @@ def enrich_drugs_with_pk_and_approval(df_drugs: pd.DataFrame) -> pd.DataFrame:
     if df_drugs.empty:
         return df_drugs
 
-    # Build per-drug lookup once
     unique_drugs = sorted(set(df_drugs["drug_name"].dropna().astype(str)))
     records = []
     for name in unique_drugs:
@@ -382,7 +376,6 @@ def enrich_drugs_with_pk_and_approval(df_drugs: pd.DataFrame) -> pd.DataFrame:
     info = pd.DataFrame.from_records(records)
     out = df_drugs.merge(info, on="drug_name", how="left")
 
-    # Flags: approved / clinically tested (robust numeric coercion)
     def _num(x):
         return pd.to_numeric(x, errors="coerce")
 
@@ -639,7 +632,6 @@ if run_btn:
         if df_drugs.empty:
             st.info("No drugs found for the mapped targets.")
         else:
-            # Rank safely: Approved first, then by highest phase (OT), then by ChEMBL max phase, then name
             df_drugs["phase_rank"] = pd.to_numeric(df_drugs["phase"], errors="coerce").fillna(0).astype(int)
             df_drugs["chembl_phase_rank"] = pd.to_numeric(df_drugs["chembl_max_phase"], errors="coerce").fillna(0).astype(int)
             df_drugs = df_drugs.sort_values(
@@ -647,7 +639,6 @@ if run_btn:
                 ascending=[False, False, False, True]
             )
 
-            # Aggregated per drug (targets/genes collapsed)
             drug_sum = (
                 df_drugs.groupby(["drug_id", "drug_name"]).agg(
                     targets=("target", lambda s: ";".join(sorted(set(s)))),
@@ -662,11 +653,10 @@ if run_btn:
                     chembl_max_phase=("chembl_max_phase", "max"),
                     chembl_atc=("chembl_atc", "first"),
                     chembl_roa=("chembl_roa", "first"),
-                    pk_half_life_h=("pk_half_life_h", "median"),   # PK (if available)
+                    pk_half_life_h=("pk_half_life_h", "median"),
                 ).reset_index()
             )
 
-            # Re-sort aggregated table similarly (safe numeric casts)
             drug_sum["phase_rank"] = pd.to_numeric(drug_sum["max_phase"], errors="coerce").fillna(0).astype(int)
             drug_sum["chembl_phase_rank"] = pd.to_numeric(drug_sum["chembl_max_phase"], errors="coerce").fillna(0).astype(int)
             drug_sum = drug_sum.sort_values(
@@ -674,7 +664,6 @@ if run_btn:
                 ascending=[False, False, False, False, True]
             )
 
-            # Filters
             colf1, colf2, colf3 = st.columns(3)
             with colf1:
                 only_approved = st.checkbox("Only approved drugs", value=True)
