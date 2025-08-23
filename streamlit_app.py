@@ -123,7 +123,7 @@ with st.sidebar:
     st.caption("Gene metadata, pathway enrichment, disease links & drug repurposing")
     st.markdown("---")
     st.markdown("**Tips**")
-    st.markdown("- Keep gene lists modest (≤300) to avoid API throttling.\n- Re-run if APIs rate-limit (we cache results for 1h).")
+    st.markdown("- Keep gene lists modest (≤100) to avoid API throttling.\n- Re-run if APIs rate-limit (we cache results for 1h).")
 
 # ----------------------------
 # Caching helpers – KEGG / NCBI
@@ -440,13 +440,19 @@ if run_btn:
                 genes, organism_entrez, kegg_org_prefix, progress=progress
             )
         st.success("Metadata retrieval complete.")
-        st.dataframe(df_meta, use_container_width=True, hide_index=True)
-        st.download_button(
-            "⬇️ Download metadata CSV",
-            data=df_meta.to_csv(index=False).encode("utf-8"),
-            file_name="gene_metadata_with_kegg.csv",
-            mime="text/csv"
-        )
+
+        if not df_meta.empty:
+            show_meta = df_meta.copy()
+            show_meta.insert(0, "#", range(1, len(show_meta) + 1))  # add serial numbers
+            st.dataframe(show_meta, use_container_width=True, hide_index=True)
+            st.download_button(
+                "⬇️ Download metadata CSV",
+                data=df_meta.to_csv(index=False).encode("utf-8"),
+                file_name="gene_metadata_with_kegg.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No metadata found for the provided gene list.")
 
     # -------- Step 2: Enrichment (counts-only) --------
     with enrich_tab:
