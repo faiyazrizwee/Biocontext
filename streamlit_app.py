@@ -335,7 +335,7 @@ def pkdb_half_life(drug_name: str) -> float | None:
         if not comp_id:
             return None
 
-        # Pull parameters for this compound - filter by half-life if possible
+        # Pull parameters for this compound - filter by half-life
         r = SESSION.get("https://pk-db.com/api/parameters/", params={"compound": comp_id, "name": "half-life"}, timeout=30)
         params = r.json().get("results") or []
         vals = []
@@ -344,7 +344,6 @@ def pkdb_half_life(drug_name: str) -> float | None:
             unit = (p.get("unit") or "").lower()
             if val is None:
                 continue
-            # PK-DB usually stores half-life in hours; if not, naive conversion for minutes
             if "hour" in unit:
                 vals.append(float(val))
             elif "min" in unit:
@@ -383,11 +382,21 @@ def enrich_drugs_with_pk_and_approval(df_drugs: pd.DataFrame) -> pd.DataFrame:
     info = pd.DataFrame.from_records(records)
     out = df_drugs.merge(info, on="drug_name", how="left")
 
-    # Flags: approved / clinically tested
+    # Flags: approved / clinically tested (robust numeric coercion)
+    def _num(x):
+        return pd.to_numeric(x, errors="coerce")
+
     def _approved(row):
-        return bool((row.get("phase") and int(row["phase"]) >= 4) or (row.get("chembl_first_approval")))
+        p_ot = _num(row.get("phase"))
+        p_ch = _num(row.get("chembl_max_phase"))
+        has_phase4 = (pd.notna(p_ot) and p_ot >= 4) or (pd.notna(p_ch) and p_ch >= 4)
+        has_approval = bool(row.get("chembl_first_approval"))
+        return bool(has_phase4 or has_approval)
+
     def _clin(row):
-        return bool((row.get("phase") and int(row["phase"]) >= 1) or (row.get("chembl_max_phase") and int(row["chembl_max_phase"]) >= 1))
+        p_ot = _num(row.get("phase"))
+        p_ch = _num(row.get("chembl_max_phase"))
+        return bool((pd.notna(p_ot) and p_ot >= 1) or (pd.notna(p_ch) and p_ch >= 1))
 
     out["approved"] = out.apply(_approved, axis=1)
     out["clinically_tested"] = out.apply(_clin, axis=1)
@@ -630,9 +639,9 @@ if run_btn:
         if df_drugs.empty:
             st.info("No drugs found for the mapped targets.")
         else:
-            # Rank: Approved first, then by highest phase (from OT), then by ChEMBL max phase, then name
-            df_drugs["phase_rank"] = df_drugs["phase"].fillna(0).astype(int)
-            df_drugs["chembl_phase_rank"] = df_drugs["chembl_max_phase"].fillna(0).astype(int)
+            # Rank safely: Approved first, then by highest phase (OT), then by ChEMBL max phase, then name
+            df_drugs["phase_rank"] = pd.to_numeric(df_drugs["phase"], errors="coerce").fillna(0).astype(int)
+            df_drugs["chembl_phase_rank"] = pd.to_numeric(df_drugs["chembl_max_phase"], errors="coerce").fillna(0).astype(int)
             df_drugs = df_drugs.sort_values(
                 ["approved", "phase_rank", "chembl_phase_rank", "drug_name"],
                 ascending=[False, False, False, True]
@@ -657,9 +666,9 @@ if run_btn:
                 ).reset_index()
             )
 
-            # Re-sort aggregated table similarly
-            drug_sum["phase_rank"] = drug_sum["max_phase"].fillna(0).astype(int)
-            drug_sum["chembl_phase_rank"] = drug_sum["chembl_max_phase"].fillna(0).astype(int)
+            # Re-sort aggregated table similarly (safe numeric casts)
+            drug_sum["phase_rank"] = pd.to_numeric(drug_sum["max_phase"], errors="coerce").fillna(0).astype(int)
+            drug_sum["chembl_phase_rank"] = pd.to_numeric(drug_sum["chembl_max_phase"], errors="coerce").fillna(0).astype(int)
             drug_sum = drug_sum.sort_values(
                 ["approved", "clinically_tested", "phase_rank", "chembl_phase_rank", "drug_name"],
                 ascending=[False, False, False, False, True]
@@ -716,7 +725,7 @@ if run_btn:
                     drugs_set = []
                     if 'df_drugs' in locals() and not df_drugs.empty:
                         tmp = df_drugs[df_drugs['gene'].isin(genes_set)].copy()
-                        tmp['phase_rank'] = tmp['phase'].fillna(0).astype(int)
+                        tmp['phase_rank'] = pd.to_numeric(tmp['phase'], errors='coerce').fillna(0).astype(int)
                         tmp = tmp.sort_values('phase_rank', ascending=False)
                         drugs_set = sorted(set(tmp.head(100)['drug_name']))[:15]
 
@@ -734,7 +743,8 @@ if run_btn:
                             s = node_index[f"G: {row['gene']}"]
                             t = node_index.get(f"Rx: {row['drug_name']}")
                             if t is not None:
-                                links.append((s, t, max(int(row['phase'] or 0), 1)))
+                                val = int(pd.to_numeric(row.get('phase'), errors='coerce') or 0)
+                                links.append((s, t, max(val, 1)))
 
                     sources = [s for s,_,_ in links]
                     targets = [t for _,t,_ in links]
