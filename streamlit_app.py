@@ -1,6 +1,6 @@
 # streamlit_app.py
 # -------------------------------------------------------------
-# BioContext – Gene2Therapy
+# Gene2Therapy
 # Gene list → KEGG enrichment → Disease links (OpenTargets)
 # → Drug repurposing → Visualizations
 # -------------------------------------------------------------
@@ -18,6 +18,10 @@ from Bio import Entrez
 import plotly.express as px
 import plotly.graph_objects as go
 import networkx as nx
+
+# NEW: robust HTTP session with retries/backoff
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # ----------------------------
 # App Config / Theming (MUST be first Streamlit call)
@@ -49,6 +53,19 @@ with left:
 with right:
     st.markdown("# Gene2Therapy")
     st.caption("Gene → Enrichment → Disease → Drug repurposing")
+
+# ----------------------------
+# HTTP session with retries/backoff (faster & more reliable)
+# ----------------------------
+RETRY = Retry(
+    total=5, connect=3, read=3,
+    backoff_factor=0.5,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["GET", "POST"]
+)
+SESSION = requests.Session()
+SESSION.mount("https://", HTTPAdapter(max_retries=RETRY))
+SESSION.mount("http://",  HTTPAdapter(max_retries=RETRY))
 
 # ----------------------------
 # Helper: load genes from any supported input (define BEFORE using)
@@ -125,7 +142,7 @@ with st.sidebar:
 # ----------------------------
 @st.cache_data(ttl=3600)
 def kegg_get(path: str) -> str:
-    r = requests.get(f"https://rest.kegg.jp{path}", timeout=30)
+    r = SESSION.get(f"https://rest.kegg.jp{path}", timeout=30)
     r.raise_for_status()
     return r.text
 
@@ -181,6 +198,25 @@ def kegg_pathway_name(pathway_id: str) -> str | None:
             return line.replace("NAME", "").strip()
     return None
 
+# NEW: robust count of genes in a KEGG pathway (used for K)
+@st.cache_data(ttl=3600)
+def kegg_link_gene_count(pid_clean: str, retries: int = 3, backoff: float = 0.7) -> int | None:
+    """
+    Return number of genes on a KEGG pathway (e.g. 'hsa04310').
+    Retries a few times to avoid transient empty responses / rate limits.
+    """
+    url = f"/link/genes/{pid_clean}"
+    for i in range(retries):
+        try:
+            txt = kegg_get(url)
+            if txt.strip():
+                lines = [ln for ln in txt.splitlines() if "\t" in ln]
+                return len(lines) if lines else 0
+        except Exception:
+            pass
+        time.sleep(backoff * (i + 1))
+    return None
+
 # ----------------------------
 # OpenTargets helpers (no API key)
 # ----------------------------
@@ -190,7 +226,7 @@ OT_GQL = "https://api.platform.opentargets.org/api/v4/graphql"
 def ot_query(query: str, variables: dict | None = None) -> dict:
     """Return {} on HTTP/GraphQL errors so the UI keeps running."""
     try:
-        r = requests.post(OT_GQL, json={"query": query, "variables": variables or {}}, timeout=40)
+        r = SESSION.post(OT_GQL, json={"query": query, "variables": variables or {}}, timeout=40)
         data = r.json()
         if r.status_code >= 400 or (isinstance(data, dict) and data.get("errors") and not data.get("data")):
             return {}
@@ -306,36 +342,62 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str, keg
     return pd.DataFrame(results), pathway_to_genes
 
 def hypergeom_pval(M: int, K: int, n: int, x: int) -> float:
+    """Right-tail hypergeometric P(X >= x)."""
+    if any(v is None for v in (M, K, n, x)):
+        return None
+    # guard/clamp
+    M = max(int(M), 1)
+    K = max(min(int(K), M), 0)
+    n = max(min(int(n), M), 0)
+    x = max(min(int(x), min(K, n)), 0)
+
     denom = math.comb(M, n) if 0 <= n <= M else 1
+    if denom == 0:
+        return None
     s = 0.0
     upper = min(K, n)
     for i in range(x, upper + 1):
         s += math.comb(K, i) * math.comb(M - K, n - i)
-    return s / denom if denom else 1.0
+    return s / denom
+
+def bh_fdr(pvals: list[float]) -> list[float]:
+    """Benjamini–Hochberg FDR correction. Returns q-values ordered as input."""
+    m = len(pvals)
+    pairs = sorted([(p if (p is not None and p >= 0) else 1.0, i) for i, p in enumerate(pvals)], key=lambda x: x[0])
+    q = [0.0] * m
+    prev = 1.0
+    for rank, (p, idx) in enumerate(pairs, start=1):
+        val = min(p * m / rank, 1.0)
+        prev = min(prev, val)
+        q[idx] = prev
+    return q
 
 def compute_enrichment(pathway_to_genes: dict, gene_list: list[str], kegg_org_prefix: str, universe_size: int = 20000):
-    K_cache = {}
+    """
+    Hypergeometric enrichment for each KEGG pathway that has >=1 gene hit.
+    Uses robust counting for K via retries. Also computes BH-FDR (q-value).
+    """
+    # Build K cache using robust counter
+    K_cache: dict[str, int | None] = {}
     for pid in pathway_to_genes.keys():
         pid_clean = pid.replace("path:", "")
-        try:
-            txt = kegg_get(f"/link/genes/{pid_clean}")
-            genes_on_pathway = {line.split("\t")[1].strip() for line in txt.strip().split("\n") if "\t" in line}
-            K_cache[pid] = len(genes_on_pathway)
-        except Exception:
-            K_cache[pid] = None
+        K_cache[pid] = kegg_link_gene_count(pid_clean)
 
     n = len(gene_list)
     rows = []
+    pvals_for_fdr = []
+
     for pid, genes in sorted(pathway_to_genes.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         count = len(genes)
         pname = kegg_pathway_name(pid) or ""
         K = K_cache.get(pid, None)
         pval = None
-        if K is not None and universe_size is not None:
+        if K is not None and universe_size is not None and n > 0 and K > 0:
             try:
                 pval = hypergeom_pval(universe_size, K, n, count)
             except Exception:
                 pval = None
+
         rows.append({
             "Pathway_ID": pid.replace("path:", ""),
             "Pathway_Name": pname,
@@ -343,9 +405,14 @@ def compute_enrichment(pathway_to_genes: dict, gene_list: list[str], kegg_org_pr
             "Genes": ";".join(sorted(genes)),
             "PValue": pval
         })
+        pvals_for_fdr.append(pval if pval is not None else 1.0)
+
     df = pd.DataFrame(rows)
     if not df.empty:
-        df = df.sort_values(["Count", "PValue"], ascending=[False, True], na_position="last")
+        # Add BH-FDR q-values
+        df["QValue"] = bh_fdr(pvals_for_fdr)
+        # Order: by PValue then Count desc
+        df = df.sort_values(["PValue", "Count"], ascending=[True, False], na_position="last").reset_index(drop=True)
     return df
 
 # ----------------------------
@@ -498,10 +565,14 @@ if run_btn:
         st.subheader("Step 2 — Pathway Enrichment (KEGG)")
         with st.spinner("Computing enrichment..."):
             df_enrich = compute_enrichment(pathway_to_genes, genes, kegg_org_prefix, universe_size=universe_size)
+
         if df_enrich.empty:
             st.info("No pathways found for enrichment with the current gene list.")
         else:
-            st.dataframe(df_enrich, use_container_width=True)
+            # add serial numbers and show without dataframe index
+            df_enrich_show = df_enrich.copy()
+            df_enrich_show.insert(0, "#", range(1, len(df_enrich_show) + 1))
+            st.dataframe(df_enrich_show.reset_index(drop=True), use_container_width=True)
             st.download_button(
                 "Download enrichment CSV",
                 data=df_enrich.to_csv(index=False).encode("utf-8"),
@@ -532,8 +603,12 @@ if run_btn:
                 .reset_index()
                 .sort_values(["n_genes", "max_score"], ascending=[False, False])
             )
+            # serial numbers for the summary table
+            agg_show = agg.copy()
+            agg_show.insert(0, "#", range(1, len(agg_show) + 1))
+
             st.markdown("**Top diseases hit by your gene list**")
-            st.dataframe(agg.head(50), use_container_width=True)
+            st.dataframe(agg_show.reset_index(drop=True), use_container_width=True)
             st.download_button(
                 "Download disease associations (per gene)",
                 data=df_dis.to_csv(index=False).encode("utf-8"),
@@ -577,7 +652,7 @@ if run_btn:
                  .sort_values(["max_phase_rank", "drug_name"], ascending=[False, True])
             )
             st.markdown("**Drugs that hit at least one of your targets** (higher phase first)")
-            st.dataframe(drug_sum, use_container_width=True)
+            st.dataframe(drug_sum.reset_index(drop=True), use_container_width=True)
             st.download_button(
                 "Download drug suggestions (per target)",
                 data=df_drugs.to_csv(index=False).encode("utf-8"),
