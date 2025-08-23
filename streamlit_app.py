@@ -5,10 +5,8 @@
 # → Drug repurposing → Visualizations
 # -------------------------------------------------------------
 
-import io
 import time
 import math
-import json
 import requests
 import pandas as pd
 import streamlit as st
@@ -20,7 +18,7 @@ import plotly.graph_objects as go
 import networkx as nx
 
 # ----------------------------
-# App Config / Theming (MUST be first Streamlit call)
+# App Config / Theming (MUST be the first Streamlit call)
 # ----------------------------
 st.set_page_config(
     page_title="Gene2Therapy – BioContext",
@@ -50,6 +48,47 @@ with right:
     st.markdown("# Gene2Therapy")
     st.caption("Gene → Enrichment → Disease → Drug repurposing")
 
+# ---------- UX helpers & stats ----------
+def init_state():
+    for k, v in {
+        "genes": [],
+        "parsed_from": None,  # "paste" | "upload" | "demo"
+        "df_meta": None,
+        "pathway_to_genes": None,
+        "df_enrich": None,
+        "g2t": None,
+        "df_dis": None,
+        "df_drugs": None,
+    }.items():
+        st.session_state.setdefault(k, v)
+
+def show_gene_chips(genes: list[str], max_show: int = 40):
+    if not genes:
+        return
+    shown = genes[:max_show]
+    chips = " ".join([
+        f"<span style='background:#0f172a;border:1px solid #1f2a44;border-radius:999px;padding:4px 10px;margin:4px;display:inline-block'>{g}</span>"
+        for g in shown
+    ])
+    extra = f" +{len(genes)-len(shown)} more" if len(genes) > len(shown) else ""
+    st.markdown(chips + (f"<span style='opacity:.7;margin-left:8px'>{extra}</span>" if extra else ""),
+                unsafe_allow_html=True)
+
+def benjamini_hochberg(pvals: pd.Series) -> pd.Series:
+    """Return BH FDR (q-values) for a pandas Series of p-values."""
+    s = pvals.copy().astype(float)
+    n = s.notna().sum()
+    if n == 0:
+        return s
+    order = s.sort_values().index
+    ranks = pd.Series(range(1, n+1), index=order, dtype=float)
+    q = (s.loc[order] * n / ranks).cummin().clip(upper=1.0)
+    out = pd.Series(index=s.index, dtype=float)
+    out.loc[order] = q
+    return out
+
+init_state()
+
 # ----------------------------
 # Helper: load genes from any supported input (define BEFORE using)
 # ----------------------------
@@ -57,7 +96,7 @@ def load_genes_from_any(uploaded_file) -> list[str]:
     """
     Read genes from CSV/TSV/XLSX/TXT.
     Prefer columns named 'Gene.symbol' or 'Symbol' (case-insensitive).
-    Returns up to the first 200 unique, cleaned symbols (uppercased).
+    Returns up to the first 200 unique symbols (uppercased).
     """
     name = (uploaded_file.name or "").lower()
 
@@ -362,13 +401,13 @@ def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens")
     return g2t
 
 @st.cache_data(ttl=3600)
-def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
+def collect_disease_links(gene_to_target: dict, size: int) -> pd.DataFrame:
     frames = []
     for g, tgt in gene_to_target.items():
         tid = tgt.get("id")
         if not tid:
             continue
-        df = ot_diseases_for_target(tid)
+        df = ot_diseases_for_target(tid, size=size)
         if not df.empty:
             df.insert(0, "gene", g)
             frames.append(df)
@@ -378,13 +417,13 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
     return pd.DataFrame(columns=["gene", "target", "disease_id", "disease_name", "association_score"])
 
 @st.cache_data(ttl=3600)
-def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
+def collect_drug_suggestions(gene_to_target: dict, size: int) -> pd.DataFrame:
     frames = []
     for g, tgt in gene_to_target.items():
         tid = tgt.get("id")
         if not tid:
             continue
-        df = ot_drugs_for_target(tid)
+        df = ot_drugs_for_target(tid, size=size)
         if not df.empty:
             df.insert(0, "gene", g)
             frames.append(df)
@@ -394,64 +433,85 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
     return pd.DataFrame(columns=["gene", "target", "drug_id", "drug_name", "phase", "moa", "diseases"])
 
 # ----------------------------
-# UI – Inputs
+# UI – Inputs (guided panel)
 # ----------------------------
-st.markdown("Upload a gene list (CSV/TSV/XLSX/TXT) or paste genes, then download annotations and enrichment. Explore disease links and repurposable drugs.")
+st.markdown("Upload a gene list (CSV/TSV/XLSX/TXT) **or** paste genes. I’ll cap at 200 unique symbols.")
 
-email = st.text_input("NCBI Entrez email (required)", value="", help="NCBI asks for a contact email for E-Utilities.")
-if email:
-    Entrez.email = email
+colA, colB = st.columns([3, 2])
+with colA:
+    email = st.text_input("NCBI Entrez email (required)", value="", help="NCBI requests a contact email for E-Utilities.")
+    if email:
+        Entrez.email = email
+with colB:
+    st.write("")
+    if st.button("Clear cache"):
+        st.cache_data.clear()
+        st.toast("Cache cleared.", icon="🧹")
 
+org_label = st.selectbox("Organism", ["Homo sapiens (human)", "Mus musculus (mouse)", "Rattus norvegicus (rat)"], index=0)
 organisms = {
     "Homo sapiens (human)": {"entrez": "Homo sapiens", "kegg": "hsa"},
     "Mus musculus (mouse)": {"entrez": "Mus musculus", "kegg": "mmu"},
     "Rattus norvegicus (rat)": {"entrez": "Rattus norvegicus", "kegg": "rno"},
 }
-org_label = st.selectbox("Organism", list(organisms.keys()), index=0)
 organism_entrez = organisms[org_label]["entrez"]
 kegg_org_prefix = organisms[org_label]["kegg"]
 
-universe_size = st.number_input(
-    "Gene universe size for enrichment (approx.)",
-    min_value=1000, max_value=100000, value=20000, step=1000,
-    help="Used for hypergeometric p-values. ~20,000 is a common default for human protein-coding genes."
-)
+with st.expander("Advanced options", expanded=False):
+    universe_size = st.number_input(
+        "Gene universe size for enrichment",
+        min_value=1000, max_value=100000, value=20000, step=1000,
+        help="Used for hypergeometric p-values. ~20k is common for human."
+    )
+    ot_size_diseases = st.slider("Max diseases per target (OpenTargets)", 10, 200, 50, 10)
+    ot_size_drugs    = st.slider("Max drugs per target (OpenTargets)", 10, 200, 100, 10)
 
 st.markdown("### Input Options")
+src = st.radio("Choose input source", ["Upload a file", "Paste genes", "Use demo list"], horizontal=True)
 
-# Option 1: File upload
-uploaded = st.file_uploader(
-    "Upload gene list (.csv, .tsv, .txt, .xlsx). If a table, I'll use the 'Gene.symbol' or 'Symbol' column.",
-    type=["csv", "tsv", "txt", "xlsx"]
-)
-
-# Option 2: Manual input
-manual_input = st.text_area(
-    "Or paste gene symbols here (comma, space, or newline separated):",
-    placeholder="e.g. TP53, BRCA1, EGFR, MYC"
-)
-
-# Combine input sources (prefer manual when provided)
 genes_from_input: list[str] = []
-if manual_input.strip():
-    raw = manual_input.replace(",", "\n").replace(" ", "\n")
-    seen = set()
-    cleaned = []
-    for g in raw.splitlines():
-        gg = g.strip().upper()
-        if gg and gg not in seen:
-            seen.add(gg)
-            cleaned.append(gg)
-        if len(cleaned) >= 200:
-            break
-    genes_from_input = cleaned
-elif uploaded is not None:
-    genes_from_input = load_genes_from_any(uploaded)
+if src == "Upload a file":
+    uploaded = st.file_uploader(
+        "Upload (.csv, .tsv, .txt, .xlsx). If a table, I'll use the 'Gene.symbol' or 'Symbol' column.",
+        type=["csv", "tsv", "txt", "xlsx"]
+    )
+    if uploaded is not None:
+        genes_from_input = load_genes_from_any(uploaded)
+        st.session_state.parsed_from = "upload"
+elif src == "Paste genes":
+    manual_input = st.text_area(
+        "Paste gene symbols (comma/space/newline separated):",
+        placeholder="TP53, BRCA1, EGFR, MYC, ...",
+        height=120
+    )
+    if manual_input.strip():
+        raw = manual_input.replace(",", "\n").replace(" ", "\n")
+        seen, cleaned = set(), []
+        for g in raw.splitlines():
+            gg = g.strip().upper()
+            if gg and gg not in seen:
+                seen.add(gg); cleaned.append(gg)
+            if len(cleaned) >= 200:
+                break
+        genes_from_input = cleaned
+        st.session_state.parsed_from = "paste"
+else:
+    demo = ["TP53","BRCA1","EGFR","MYC","PIK3CA","PTEN","KRAS","BRAF","CDK4","CDK6","CDKN2A","ERBB2","NRAS","ALK","ROS1"]
+    genes_from_input = demo
+    st.session_state.parsed_from = "demo"
+    st.info("Loaded a small demo list so you can try the app.")
 
+# Preview chips + persist
+if genes_from_input:
+    st.session_state.genes = genes_from_input
+    st.toast(f"Parsed {len(genes_from_input)} gene(s).", icon="✅")
+    show_gene_chips(genes_from_input)
+
+# Final go button
 run_btn = st.button(
     "Analyze",
     type="primary",
-    disabled=(not genes_from_input or not email)
+    disabled=(not st.session_state.genes or not email)
 )
 
 # ----------------------------
@@ -464,12 +524,9 @@ meta_tab, enrich_tab, disease_tab, drug_tab, viz_tab = st.tabs([
 if run_btn:
     # -------- Load genes --------
     try:
-        genes = genes_from_input
+        genes = st.session_state.genes
         if not genes:
-            st.error(
-                "Could not parse any genes. Make sure the file has a 'Gene.symbol' or 'Symbol' column, "
-                "or a single-column list of gene symbols."
-            )
+            st.error("No genes parsed. Upload a file or paste symbols.")
             st.stop()
         st.success(f"Loaded {len(genes)} genes.")
     except Exception as e:
@@ -484,7 +541,7 @@ if run_btn:
             df_meta, pathway_to_genes = fetch_gene_metadata_and_kegg(
                 genes, organism_entrez, kegg_org_prefix, progress=progress
             )
-        st.success("Metadata retrieval complete.")
+        st.toast("Metadata retrieval complete.", icon="📘")
         st.dataframe(df_meta, use_container_width=True)
         st.download_button(
             "Download metadata CSV",
@@ -498,19 +555,49 @@ if run_btn:
         st.subheader("Step 2 — Pathway Enrichment (KEGG)")
         with st.spinner("Computing enrichment..."):
             df_enrich = compute_enrichment(pathway_to_genes, genes, kegg_org_prefix, universe_size=universe_size)
+
         if df_enrich.empty:
             st.info("No pathways found for enrichment with the current gene list.")
         else:
-            st.dataframe(df_enrich, use_container_width=True)
+            # Add BH FDR (q-value)
+            if "PValue" in df_enrich.columns:
+                df_enrich["q_value"] = benjamini_hochberg(df_enrich["PValue"])
+
+            # Filters
+            colf1, colf2, colf3 = st.columns([1,1,2])
+            with colf1:
+                min_count = st.number_input("Min genes in pathway", 1, 100, 2)
+            with colf2:
+                q_cut = st.selectbox("q-value max", ["none", 0.05, 0.10, 0.20], index=1)
+            with colf3:
+                search = st.text_input("Search pathway name (contains)", "")
+
+            dfv = df_enrich.copy()
+            dfv = dfv[dfv["Count"] >= min_count]
+            if q_cut != "none" and "q_value" in dfv:
+                dfv = dfv[dfv["q_value"].le(float(q_cut))]
+            if search:
+                dfv = dfv[dfv["Pathway_Name"].str.contains(search, case=False, na=False)]
+
+            st.dataframe(
+                dfv,
+                use_container_width=True,
+                column_config={
+                    "PValue": st.column_config.NumberColumn(format="%.3e"),
+                    "q_value": st.column_config.NumberColumn(format="%.3e", help="Benjamini–Hochberg FDR"),
+                    "Count": st.column_config.NumberColumn(help="# of your genes in this pathway")
+                }
+            )
             st.download_button(
                 "Download enrichment CSV",
-                data=df_enrich.to_csv(index=False).encode("utf-8"),
-                file_name="pathway_enrichment.csv",
+                data=dfv.to_csv(index=False).encode("utf-8"),
+                file_name="pathway_enrichment_filtered.csv",
                 mime="text/csv"
             )
             try:
-                topN = df_enrich.head(15).copy()
-                fig = px.bar(topN, x="Count", y="Pathway_Name", orientation="h", title="Top enriched pathways")
+                topN = dfv.head(15).copy()
+                fig = px.bar(topN, x="Count", y="Pathway_Name", orientation="h",
+                             title="Top enriched pathways (filtered)")
                 fig.update_layout(height=600)
                 st.plotly_chart(fig, use_container_width=True)
             except Exception:
@@ -521,7 +608,8 @@ if run_btn:
         st.subheader("Step 3 — Disease Associations (OpenTargets)")
         with st.spinner("Mapping symbols to Ensembl IDs and fetching disease links..."):
             g2t = build_gene_to_ot_target_map(genes, species="Homo sapiens")
-            df_dis = collect_disease_links(g2t)
+            df_dis = collect_disease_links(g2t, size=ot_size_diseases)
+
         if df_dis.empty:
             st.info("No disease associations retrieved (try human genes or a smaller list).")
         else:
@@ -532,8 +620,20 @@ if run_btn:
                 .reset_index()
                 .sort_values(["n_genes", "max_score"], ascending=[False, False])
             )
+
+            # Filters
+            topN_dis = st.slider("Show top N diseases", 10, 200, 50, 10)
+            min_genes_dis = st.number_input("Min #genes per disease", 1, 100, 2)
+            search_dis = st.text_input("Search disease name", "")
+
+            aggv = agg.copy()
+            aggv = aggv[aggv["n_genes"] >= min_genes_dis]
+            if search_dis:
+                aggv = aggv[aggv["disease_name"].str.contains(search_dis, case=False, na=False)]
+
             st.markdown("**Top diseases hit by your gene list**")
-            st.dataframe(agg.head(50), use_container_width=True)
+            st.dataframe(aggv.head(topN_dis), use_container_width=True)
+
             st.download_button(
                 "Download disease associations (per gene)",
                 data=df_dis.to_csv(index=False).encode("utf-8"),
@@ -547,7 +647,7 @@ if run_btn:
                 mime="text/csv"
             )
             try:
-                topD = agg.head(20)
+                topD = aggv.head(min(topN_dis, 20))
                 figd = px.bar(topD, x="n_genes", y="disease_name", orientation="h",
                               title="Top disease associations (by #genes)")
                 figd.update_layout(height=650)
@@ -559,7 +659,8 @@ if run_btn:
     with drug_tab:
         st.subheader("Step 4 — Repurposable Drug Suggestions (targets from your list)")
         with st.spinner("Fetching known drugs targeting your genes..."):
-            df_drugs = collect_drug_suggestions(g2t)
+            df_drugs = collect_drug_suggestions(g2t, size=ot_size_drugs)
+
         if df_drugs.empty:
             st.info("No drugs found for the mapped targets. Try different genes or check human mapping.")
         else:
@@ -576,8 +677,23 @@ if run_btn:
                 ).reset_index()
                  .sort_values(["max_phase_rank", "drug_name"], ascending=[False, True])
             )
+
+            # Quick filters
+            min_phase = st.selectbox("Minimum clinical phase", [0,1,2,3,4], index=3,
+                                     help="Filter by highest phase per drug")
+            search_drug = st.text_input("Search drug/target/gene", "")
+
+            dv = drug_sum[drug_sum["max_phase"].fillna(0).astype(int) >= int(min_phase)].copy()
+            if search_drug:
+                mask = (
+                    dv["drug_name"].str.contains(search_drug, case=False, na=False) |
+                    dv["targets"].str.contains(search_drug, case=False, na=False) |
+                    dv["genes"].str.contains(search_drug, case=False, na=False)
+                )
+                dv = dv[mask]
+
             st.markdown("**Drugs that hit at least one of your targets** (higher phase first)")
-            st.dataframe(drug_sum, use_container_width=True)
+            st.dataframe(dv, use_container_width=True)
             st.download_button(
                 "Download drug suggestions (per target)",
                 data=df_drugs.to_csv(index=False).encode("utf-8"),
