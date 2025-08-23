@@ -1,14 +1,11 @@
 # streamlit_app.py
 # -------------------------------------------------------------
 # Gene2Therapy
-# Gene list → KEGG enrichment → Disease links (OpenTargets)
+# Gene list → KEGG enrichment (counts-only) → Disease links (OpenTargets)
 # → Drug repurposing → Visualizations
 # -------------------------------------------------------------
 
-import io
 import time
-import math
-import json
 import requests
 import pandas as pd
 import streamlit as st
@@ -18,17 +15,15 @@ from Bio import Entrez
 import plotly.express as px
 import plotly.graph_objects as go
 import networkx as nx
-
-# NEW: robust HTTP session with retries/backoff
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # ----------------------------
-# App Config / Theming (MUST be first Streamlit call)
+# App Config / Theming (must be FIRST Streamlit call)
 # ----------------------------
 st.set_page_config(
     page_title="Gene2Therapy – BioContext",
-    page_icon="logoo.png",   # ensure logoo.png sits next to this file
+    page_icon="logoo.png",
     layout="wide",
 )
 
@@ -46,45 +41,40 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Top header (branding)
-left, right = st.columns([1, 9])
-with left:
+# Top header
+c1, c2 = st.columns([1, 9])
+with c1:
     st.image("logoo.png", width=120)
-with right:
+with c2:
     st.markdown("# Gene2Therapy")
     st.caption("Gene → Enrichment → Disease → Drug repurposing")
 
 # ----------------------------
-# HTTP session with retries/backoff (faster & more reliable)
+# HTTP session with retries/backoff
 # ----------------------------
 RETRY = Retry(
     total=5, connect=3, read=3,
     backoff_factor=0.5,
     status_forcelist=[429, 500, 502, 503, 504],
-    allowed_methods=["GET", "POST"]
+    allowed_methods=["GET", "POST"],
 )
 SESSION = requests.Session()
 SESSION.mount("https://", HTTPAdapter(max_retries=RETRY))
 SESSION.mount("http://",  HTTPAdapter(max_retries=RETRY))
 
 # ----------------------------
-# Helper: load genes from any supported input (define BEFORE using)
+# Helper: load genes from any supported input
 # ----------------------------
 def load_genes_from_any(uploaded_file) -> list[str]:
     """
     Read genes from CSV/TSV/XLSX/TXT.
-    Prefer columns named 'Gene.symbol' or 'Symbol' (case-insensitive).
-    Returns up to the first 200 unique, cleaned symbols (uppercased).
+    Prefer columns 'Gene.symbol' or 'Symbol' (case-insensitive).
+    Returns ≤200 unique, uppercased symbols.
     """
     name = (uploaded_file.name or "").lower()
 
     def _clean(series: pd.Series) -> list[str]:
-        vals = (
-            series.dropna()
-                  .astype(str)
-                  .str.strip()
-                  .str.upper()
-        )
+        vals = series.dropna().astype(str).str.strip().str.upper()
         seen, out = set(), []
         for v in vals:
             if v and v not in seen:
@@ -94,7 +84,6 @@ def load_genes_from_any(uploaded_file) -> list[str]:
                 break
         return out
 
-    # Try dataframe-like formats first
     try:
         if name.endswith((".csv", ".csv.gz")):
             df = pd.read_csv(uploaded_file, compression="infer")
@@ -113,12 +102,11 @@ def load_genes_from_any(uploaded_file) -> list[str]:
                     target_col = lower_map[key]
                     break
             if target_col is None:
-                target_col = df.columns[0]  # fall back to first column
+                target_col = df.columns[0]
             return _clean(df[target_col])
     except Exception:
-        pass  # fall back to plain text parsing
+        pass
 
-    # Plain-text list (one gene per line)
     try:
         raw = uploaded_file.read()
         text = raw.decode("utf-8", errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
@@ -151,7 +139,7 @@ def ncbi_esearch_gene_ids(gene_symbol: str, organism_entrez: str) -> list[str]:
     handle = Entrez.esearch(
         db="gene",
         term=f"{gene_symbol}[Gene] AND {organism_entrez}[Organism]",
-        retmode="xml"
+        retmode="xml",
     )
     record = Entrez.read(handle)
     handle.close()
@@ -198,33 +186,13 @@ def kegg_pathway_name(pathway_id: str) -> str | None:
             return line.replace("NAME", "").strip()
     return None
 
-# NEW: robust count of genes in a KEGG pathway (used for K)
-@st.cache_data(ttl=3600)
-def kegg_link_gene_count(pid_clean: str, retries: int = 3, backoff: float = 0.7) -> int | None:
-    """
-    Return number of genes on a KEGG pathway (e.g. 'hsa04310').
-    Retries a few times to avoid transient empty responses / rate limits.
-    """
-    url = f"/link/genes/{pid_clean}"
-    for i in range(retries):
-        try:
-            txt = kegg_get(url)
-            if txt.strip():
-                lines = [ln for ln in txt.splitlines() if "\t" in ln]
-                return len(lines) if lines else 0
-        except Exception:
-            pass
-        time.sleep(backoff * (i + 1))
-    return None
-
 # ----------------------------
-# OpenTargets helpers (no API key)
+# OpenTargets (no API key)
 # ----------------------------
 OT_GQL = "https://api.platform.opentargets.org/api/v4/graphql"
 
 @st.cache_data(ttl=3600)
 def ot_query(query: str, variables: dict | None = None) -> dict:
-    """Return {} on HTTP/GraphQL errors so the UI keeps running."""
     try:
         r = SESSION.post(OT_GQL, json={"query": query, "variables": variables or {}}, timeout=40)
         data = r.json()
@@ -341,82 +309,27 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str, keg
             results.append({"Gene": gene, "NCBI_ID": None, "Description": f"Error: {e}", "KEGG_Pathways": None})
     return pd.DataFrame(results), pathway_to_genes
 
-def hypergeom_pval(M: int, K: int, n: int, x: int) -> float:
-    """Right-tail hypergeometric P(X >= x)."""
-    if any(v is None for v in (M, K, n, x)):
-        return None
-    # guard/clamp
-    M = max(int(M), 1)
-    K = max(min(int(K), M), 0)
-    n = max(min(int(n), M), 0)
-    x = max(min(int(x), min(K, n)), 0)
-
-    denom = math.comb(M, n) if 0 <= n <= M else 1
-    if denom == 0:
-        return None
-    s = 0.0
-    upper = min(K, n)
-    for i in range(x, upper + 1):
-        s += math.comb(K, i) * math.comb(M - K, n - i)
-    return s / denom
-
-def bh_fdr(pvals: list[float]) -> list[float]:
-    """Benjamini–Hochberg FDR correction. Returns q-values ordered as input."""
-    m = len(pvals)
-    pairs = sorted([(p if (p is not None and p >= 0) else 1.0, i) for i, p in enumerate(pvals)], key=lambda x: x[0])
-    q = [0.0] * m
-    prev = 1.0
-    for rank, (p, idx) in enumerate(pairs, start=1):
-        val = min(p * m / rank, 1.0)
-        prev = min(prev, val)
-        q[idx] = prev
-    return q
-
-def compute_enrichment(pathway_to_genes: dict, gene_list: list[str], kegg_org_prefix: str, universe_size: int = 20000):
+def compute_enrichment_counts_only(pathway_to_genes: dict):
     """
-    Hypergeometric enrichment for each KEGG pathway that has >=1 gene hit.
-    Uses robust counting for K via retries. Also computes BH-FDR (q-value).
+    Fast enrichment summary WITHOUT p-values/FDR.
+    Just counts how many of your genes hit each KEGG pathway.
     """
-    # Build K cache using robust counter
-    K_cache: dict[str, int | None] = {}
-    for pid in pathway_to_genes.keys():
-        pid_clean = pid.replace("path:", "")
-        K_cache[pid] = kegg_link_gene_count(pid_clean)
-
-    n = len(gene_list)
     rows = []
-    pvals_for_fdr = []
-
     for pid, genes in sorted(pathway_to_genes.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-        count = len(genes)
         pname = kegg_pathway_name(pid) or ""
-        K = K_cache.get(pid, None)
-        pval = None
-        if K is not None and universe_size is not None and n > 0 and K > 0:
-            try:
-                pval = hypergeom_pval(universe_size, K, n, count)
-            except Exception:
-                pval = None
-
         rows.append({
             "Pathway_ID": pid.replace("path:", ""),
             "Pathway_Name": pname,
-            "Count": count,
+            "Count": len(genes),
             "Genes": ";".join(sorted(genes)),
-            "PValue": pval
         })
-        pvals_for_fdr.append(pval if pval is not None else 1.0)
-
     df = pd.DataFrame(rows)
     if not df.empty:
-        # Add BH-FDR q-values
-        df["QValue"] = bh_fdr(pvals_for_fdr)
-        # Order: by PValue then Count desc
-        df = df.sort_values(["PValue", "Count"], ascending=[True, False], na_position="last").reset_index(drop=True)
+        df = df.sort_values(["Count", "Pathway_Name"], ascending=[False, True]).reset_index(drop=True)
     return df
 
 # ----------------------------
-# Cohort-level OpenTargets: mapping, diseases, drugs
+# OpenTargets cohort functions
 # ----------------------------
 @st.cache_data(ttl=3600)
 def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens") -> dict:
@@ -430,13 +343,13 @@ def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens")
 
 @st.cache_data(ttl=3600)
 def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
-    frames = []
+    frames: list[pd.DataFrame] = []
     for g, tgt in gene_to_target.items():
         tid = tgt.get("id")
         if not tid:
             continue
         df = ot_diseases_for_target(tid)
-        if not df.empty:
+        if isinstance(df, pd.DataFrame) and not df.empty:
             df.insert(0, "gene", g)
             frames.append(df)
         time.sleep(0.05)
@@ -446,13 +359,13 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
 
 @st.cache_data(ttl=3600)
 def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
-    frames = []
+    frames: list[pd.DataFrame] = []
     for g, tgt in gene_to_target.items():
         tid = tgt.get("id")
         if not tid:
             continue
         df = ot_drugs_for_target(tid)
-        if not df.empty:
+        if isinstance(df, pd.DataFrame) and not df.empty:
             df.insert(0, "gene", g)
             frames.append(df)
         time.sleep(0.05)
@@ -478,48 +391,34 @@ org_label = st.selectbox("Organism", list(organisms.keys()), index=0)
 organism_entrez = organisms[org_label]["entrez"]
 kegg_org_prefix = organisms[org_label]["kegg"]
 
-universe_size = st.number_input(
-    "Gene universe size for enrichment (approx.)",
-    min_value=1000, max_value=100000, value=20000, step=1000,
-    help="Used for hypergeometric p-values. ~20,000 is a common default for human protein-coding genes."
-)
-
 st.markdown("### Input Options")
-
-# Option 1: File upload
 uploaded = st.file_uploader(
     "Upload gene list (.csv, .tsv, .txt, .xlsx). If a table, I'll use the 'Gene.symbol' or 'Symbol' column.",
-    type=["csv", "tsv", "txt", "xlsx"]
+    type=["csv", "tsv", "txt", "xlsx"],
 )
-
-# Option 2: Manual input
 manual_input = st.text_area(
     "Or paste gene symbols here (comma, space, or newline separated):",
-    placeholder="e.g. TP53, BRCA1, EGFR, MYC"
+    placeholder="e.g. TP53, BRCA1, EGFR, MYC",
 )
 
 # Combine input sources (prefer manual when provided)
 genes_from_input: list[str] = []
 if manual_input.strip():
     raw = manual_input.replace(",", "\n").replace(" ", "\n")
-    seen = set()
-    cleaned = []
+    seen: set[str] = set()
+    cleaned: list[str] = []
     for g in raw.splitlines():
         gg = g.strip().upper()
         if gg and gg not in seen:
             seen.add(gg)
             cleaned.append(gg)
-        if len(cleaned) >= 200:
-            break
+            if len(cleaned) >= 200:
+                break
     genes_from_input = cleaned
 elif uploaded is not None:
     genes_from_input = load_genes_from_any(uploaded)
 
-run_btn = st.button(
-    "Analyze",
-    type="primary",
-    disabled=(not genes_from_input or not email)
-)
+run_btn = st.button("Analyze", type="primary", disabled=(not genes_from_input or not email))
 
 # ----------------------------
 # Tabs
@@ -529,69 +428,54 @@ meta_tab, enrich_tab, disease_tab, drug_tab, viz_tab = st.tabs([
 ])
 
 if run_btn:
-    # -------- Load genes --------
-    try:
-        genes = genes_from_input
-        if not genes:
-            st.error(
-                "Could not parse any genes. Make sure the file has a 'Gene.symbol' or 'Symbol' column, "
-                "or a single-column list of gene symbols."
-            )
-            st.stop()
-        st.success(f"Loaded {len(genes)} genes.")
-    except Exception as e:
-        st.error(f"Could not read input: {e}")
-        st.stop()
-
-    # -------- Step 1: Metadata --------
+    # Step 1: Metadata
     with meta_tab:
         st.subheader("Step 1 — NCBI + KEGG annotations")
         progress = st.progress(0.0)
         with st.spinner("Querying NCBI and KEGG..."):
             df_meta, pathway_to_genes = fetch_gene_metadata_and_kegg(
-                genes, organism_entrez, kegg_org_prefix, progress=progress
+                genes_from_input, organism_entrez, kegg_org_prefix, progress=progress
             )
         st.success("Metadata retrieval complete.")
-        st.dataframe(df_meta, use_container_width=True)
+        st.dataframe(df_meta, use_container_width=True, hide_index=True)
         st.download_button(
             "Download metadata CSV",
             data=df_meta.to_csv(index=False).encode("utf-8"),
             file_name="gene_metadata_with_kegg.csv",
-            mime="text/csv"
+            mime="text/csv",
         )
 
-    # -------- Step 2: Enrichment --------
+    # Step 2: Enrichment (counts-only; no p-values)
     with enrich_tab:
-        st.subheader("Step 2 — Pathway Enrichment (KEGG)")
-        with st.spinner("Computing enrichment..."):
-            df_enrich = compute_enrichment(pathway_to_genes, genes, kegg_org_prefix, universe_size=universe_size)
+        st.subheader("Step 2 — Pathway Enrichment (counts-only)")
+        with st.spinner("Summarizing pathway hits..."):
+            df_enrich = compute_enrichment_counts_only(pathway_to_genes)
 
         if df_enrich.empty:
             st.info("No pathways found for enrichment with the current gene list.")
         else:
-            # add serial numbers and show without dataframe index
-            df_enrich_show = df_enrich.copy()
-            df_enrich_show.insert(0, "#", range(1, len(df_enrich_show) + 1))
-            st.dataframe(df_enrich_show.reset_index(drop=True), use_container_width=True)
+            show = df_enrich.copy()
+            show.insert(0, "#", range(1, len(show) + 1))
+            st.dataframe(show.reset_index(drop=True), use_container_width=True, hide_index=True)
             st.download_button(
-                "Download enrichment CSV",
+                "Download enrichment CSV (counts-only)",
                 data=df_enrich.to_csv(index=False).encode("utf-8"),
-                file_name="pathway_enrichment.csv",
-                mime="text/csv"
+                file_name="pathway_enrichment_counts_only.csv",
+                mime="text/csv",
             )
             try:
                 topN = df_enrich.head(15).copy()
-                fig = px.bar(topN, x="Count", y="Pathway_Name", orientation="h", title="Top enriched pathways")
+                fig = px.bar(topN, x="Count", y="Pathway_Name", orientation="h", title="Top pathways by hit count")
                 fig.update_layout(height=600)
                 st.plotly_chart(fig, use_container_width=True)
             except Exception:
                 pass
 
-    # -------- Step 3: Disease Links --------
+    # Step 3: Disease Links (no p-values in display)
     with disease_tab:
         st.subheader("Step 3 — Disease Associations (OpenTargets)")
-        with st.spinner("Mapping symbols to Ensembl IDs and fetching disease links..."):
-            g2t = build_gene_to_ot_target_map(genes, species="Homo sapiens")
+        with st.spinner("Mapping symbols to targets and fetching disease links..."):
+            g2t = build_gene_to_ot_target_map(genes_from_input, species="Homo sapiens")
             df_dis = collect_disease_links(g2t)
         if df_dis.empty:
             st.info("No disease associations retrieved (try human genes or a smaller list).")
@@ -603,23 +487,20 @@ if run_btn:
                 .reset_index()
                 .sort_values(["n_genes", "max_score"], ascending=[False, False])
             )
-            # serial numbers for the summary table
-            agg_show = agg.copy()
-            agg_show.insert(0, "#", range(1, len(agg_show) + 1))
-
-            st.markdown("**Top diseases hit by your gene list**")
-            st.dataframe(agg_show.reset_index(drop=True), use_container_width=True)
+            show = agg.copy()
+            show.insert(0, "#", range(1, len(show) + 1))
+            st.dataframe(show.reset_index(drop=True), use_container_width=True, hide_index=True)
             st.download_button(
                 "Download disease associations (per gene)",
                 data=df_dis.to_csv(index=False).encode("utf-8"),
                 file_name="gene_disease_links_opentargets.csv",
-                mime="text/csv"
+                mime="text/csv",
             )
             st.download_button(
                 "Download disease summary (aggregated)",
                 data=agg.to_csv(index=False).encode("utf-8"),
                 file_name="disease_summary_aggregated.csv",
-                mime="text/csv"
+                mime="text/csv",
             )
             try:
                 topD = agg.head(20)
@@ -630,13 +511,13 @@ if run_btn:
             except Exception:
                 pass
 
-    # -------- Step 4: Drug Suggestions --------
+    # Step 4: Drug Suggestions
     with drug_tab:
-        st.subheader("Step 4 — Repurposable Drug Suggestions (targets from your list)")
+        st.subheader("Step 4 — Repurposable Drug Suggestions")
         with st.spinner("Fetching known drugs targeting your genes..."):
             df_drugs = collect_drug_suggestions(g2t)
         if df_drugs.empty:
-            st.info("No drugs found for the mapped targets. Try different genes or check human mapping.")
+            st.info("No drugs found for the mapped targets.")
         else:
             phase_rank = {None: 0, 1: 1, 2: 2, 3: 3, 4: 4}
             df_drugs["phase_rank"] = df_drugs["phase"].map(phase_rank).fillna(0)
@@ -647,31 +528,30 @@ if run_btn:
                     max_phase=("phase", "max"),
                     max_phase_rank=("phase_rank", "max"),
                     indications=("diseases", lambda s: "; ".join(sorted({x for x in "; ".join(s).split("; ") if x}))),
-                    moa=("moa", lambda s: "; ".join(sorted({x for x in s if x})))
+                    moa=("moa", lambda s: "; ".join(sorted({x for x in s if x}))),
                 ).reset_index()
                  .sort_values(["max_phase_rank", "drug_name"], ascending=[False, True])
             )
-            st.markdown("**Drugs that hit at least one of your targets** (higher phase first)")
-            st.dataframe(drug_sum.reset_index(drop=True), use_container_width=True)
+            st.dataframe(drug_sum.reset_index(drop=True), use_container_width=True, hide_index=True)
             st.download_button(
                 "Download drug suggestions (per target)",
                 data=df_drugs.to_csv(index=False).encode("utf-8"),
                 file_name="drug_suggestions_per_target.csv",
-                mime="text/csv"
+                mime="text/csv",
             )
             st.download_button(
                 "Download drug suggestions (aggregated)",
                 data=drug_sum.to_csv(index=False).encode("utf-8"),
                 file_name="drug_suggestions_aggregated.csv",
-                mime="text/csv"
+                mime="text/csv",
             )
 
-    # -------- Step 5: Visualizations --------
+    # Step 5: Visualizations
     with viz_tab:
         st.subheader("Step 5 — Visualize the landscape")
         colA, colB = st.columns(2)
 
-        # Sankey: Genes → Diseases (top 10) → (optional) Drugs
+        # Sankey: Genes → Diseases (top 10) → Drugs (top ~15)
         with colA:
             try:
                 if 'df_dis' in locals() and not df_dis.empty:
@@ -682,46 +562,43 @@ if run_btn:
                     top_dis = set(aggD["disease_name"].tolist())
                     genes_set = sorted(set(df_dis[df_dis["disease_name"].isin(top_dis)]["gene"]))
                     dis_list = sorted(top_dis)
+
                     drugs_set = []
                     if 'df_drugs' in locals() and not df_drugs.empty:
                         tmp = df_drugs[df_drugs['gene'].isin(genes_set)].copy()
                         tmp['phase_rank'] = tmp['phase'].map({None:0,1:1,2:2,3:3,4:4}).fillna(0)
                         tmp = tmp.sort_values('phase_rank', ascending=False)
                         drugs_set = sorted(set(tmp.head(100)['drug_name']))[:15]
-                    nodes = (
-                        [f"G: {g}" for g in genes_set] +
-                        [f"D: {d}" for d in dis_list] +
-                        ([f"Rx: {d}" for d in drugs_set] if drugs_set else [])
-                    )
+
+                    nodes = [f"G: {g}" for g in genes_set] + [f"D: {d}" for d in dis_list] + [f"Rx: {d}" for d in drugs_set]
                     node_index = {n:i for i,n in enumerate(nodes)}
-                    links_s = []
+
+                    links = []
                     for d in dis_list:
                         sub = df_dis[df_dis["disease_name"] == d]
                         for g, cnt in Counter(sub["gene"]).items():
-                            s = node_index[f"G: {g}"]
-                            t = node_index[f"D: {d}"]
-                            links_s.append((s, t, max(cnt, 1)))
-                    links_r = []
+                            links.append((node_index[f"G: {g}"], node_index[f"D: {d}"], max(cnt, 1)))
                     if drugs_set and 'df_drugs' in locals() and not df_drugs.empty:
                         tmp = df_drugs[df_drugs['drug_name'].isin(drugs_set) & df_drugs['gene'].isin(genes_set)]
                         for _, row in tmp.iterrows():
                             s = node_index[f"G: {row['gene']}"]
                             t = node_index.get(f"Rx: {row['drug_name']}")
                             if t is not None:
-                                links_r.append((s, t, max((row['phase'] or 0), 1)))
-                    sources = [s for s,_,_ in links_s + links_r]
-                    targets = [t for _,t,_ in links_s + links_r]
-                    values  = [v for *_,v in links_s + links_r]
+                                links.append((s, t, max((row['phase'] or 0), 1)))
+
+                    sources = [s for s,_,_ in links]
+                    targets = [t for _,t,_ in links]
+                    values  = [v for *_,v in links]
                     fig_sankey = go.Figure(data=[go.Sankey(
                         node=dict(pad=12, thickness=14, label=nodes),
-                        link=dict(source=sources, target=targets, value=values)
+                        link=dict(source=sources, target=targets, value=values),
                     )])
                     fig_sankey.update_layout(title_text="Gene → Disease (→ Drug) connections", height=700)
                     st.plotly_chart(fig_sankey, use_container_width=True)
             except Exception as e:
                 st.warning(f"Sankey could not be drawn: {e}")
 
-        # Network: Pathway ↔ Genes (top enriched)
+        # Network: Pathway ↔ Genes
         with colB:
             try:
                 if 'df_enrich' in locals() and not df_enrich.empty:
@@ -729,29 +606,30 @@ if run_btn:
                     edges = []
                     for _, r in top_paths.iterrows():
                         p = r["Pathway_Name"] or r["Pathway_ID"]
-                        glist = (r["Genes"] or "").split(";")
-                        for g in glist:
+                        for g in (r["Genes"] or "").split(";"):
                             if g:
                                 edges.append((p, g))
                     if edges:
                         G = nx.Graph()
                         G.add_edges_from(edges)
                         pos = nx.spring_layout(G, seed=42, k=0.7)
-                        x_nodes = [pos[n][0] for n in G.nodes()]
-                        y_nodes = [pos[n][1] for n in G.nodes()]
-                        node_text = list(G.nodes())
                         xe, ye = [], []
                         for u, v in G.edges():
                             xe += [pos[u][0], pos[v][0], None]
                             ye += [pos[u][1], pos[v][1], None]
                         fig_net = go.Figure()
                         fig_net.add_trace(go.Scatter(x=xe, y=ye, mode='lines', opacity=0.5))
-                        fig_net.add_trace(go.Scatter(x=x_nodes, y=y_nodes, mode='markers+text',
-                                                     text=node_text, textposition='top center'))
-                        fig_net.update_layout(title="Gene–Pathway network (top enriched)", height=700, showlegend=False)
+                        fig_net.add_trace(go.Scatter(
+                            x=[pos[n][0] for n in G.nodes()],
+                            y=[pos[n][1] for n in G.nodes()],
+                            mode='markers+text',
+                            text=list(G.nodes()),
+                            textposition='top center',
+                        ))
+                        fig_net.update_layout(title="Gene–Pathway network (top pathways by hit count)", height=700, showlegend=False)
                         st.plotly_chart(fig_net, use_container_width=True)
             except Exception as e:
                 st.warning(f"Network could not be drawn: {e}")
 
 st.markdown("---")
-st.caption("APIs used: NCBI E-utilities, KEGG REST, OpenTargets GraphQL. Data is fetched live and cached for 1h. For clinical use, validate findings with primary sources.")
+st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL. Data is fetched live and cached for 1h. Validate findings with primary sources.")
