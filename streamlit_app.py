@@ -2,7 +2,7 @@
 # -------------------------------------------------------------
 # BioContext – Gene2Therapy
 # Gene list → KEGG enrichment (counts-only) → Disease links (OpenTargets)
-# → Drug repurposing (Phase-4 filter + optional DrugCentral cross-check)
+# → Drug repurposing (Phase-4 filter)
 # → Visualizations
 # -------------------------------------------------------------
 
@@ -64,7 +64,6 @@ def load_genes_from_any(uploaded_file) -> list[str]:
     name = (uploaded_file.name or "").lower()
 
     def _clean_series_to_genes(series: pd.Series) -> list[str]:
-        # accept comma/space/newline/semicolon separated values
         vals = (
             series.dropna().astype(str)
             .str.replace(r"[,;|\t ]+", "\n", regex=True)
@@ -100,7 +99,7 @@ def load_genes_from_any(uploaded_file) -> list[str]:
                     target_col = lower_map[key]
                     break
             if target_col is None:
-                target_col = df.columns[0]  # fallback
+                target_col = df.columns[0]
             return _clean_series_to_genes(df[target_col])
     except Exception:
         pass  # fall back to plain text parsing
@@ -279,41 +278,6 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 # ----------------------------
-# Optional: DrugCentral cross-check (approval status)
-# ----------------------------
-@st.cache_data(ttl=3600)
-def drugcentral_is_approved(drug_name: str) -> bool | None:
-    """
-    Heuristic cross-check against DrugCentral.
-    Returns True/False if determinable, else None on error/unknown.
-    """
-    try:
-        # Try a couple of lightweight endpoints
-        # 1) simple name search
-        r = requests.get("https://drugcentral.org/api/v1/drug", params={"name": drug_name}, timeout=30)
-        if r.status_code == 200:
-            js = r.json()
-            # If it's a list of candidates, check any approval-related fields
-            if isinstance(js, list) and js:
-                j0 = js[0]
-            else:
-                j0 = js
-            s = str(j0).lower()
-            # crude signals the record is an approved product
-            if any(k in s for k in ["orange book", "fda", "rxnorm", "spl_id", "approval"]):
-                return True
-
-        # 2) fallback text search
-        r2 = requests.get("https://drugcentral.org/api/v1/search", params={"q": drug_name}, timeout=30)
-        if r2.status_code == 200:
-            s2 = str(r2.json()).lower()
-            if any(k in s2 for k in ["orange book", "fda", "us approval", "ema approval", "approved"]):
-                return True
-        return None
-    except Exception:
-        return None
-
-# ----------------------------
 # Core functions
 # ----------------------------
 def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str, kegg_org_prefix: str, progress=None):
@@ -347,7 +311,6 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str, keg
     return pd.DataFrame(results), pathway_to_genes
 
 def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
-    """Counts-only enrichment summary (no p-values)."""
     rows = []
     for pid, genes in sorted(pathway_to_genes.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         rows.append({
@@ -435,13 +398,13 @@ manual_input = st.text_area(
     placeholder="e.g. TP53, BRCA1, EGFR, MYC"
 )
 
-# ---- New: Pre-analysis drug filters ----
+# ---- Drug filters (applied in the Drug Suggestions tab)
 st.markdown("#### Drug filters (applied in the Drug Suggestions tab)")
-col_opt1, col_opt2 = st.columns(2)
-with col_opt1:
-    opt_only_phase4 = st.checkbox("Show only approved drugs (Phase 4)", value=True, help="Filters to max_phase ≥ 4.")
-with col_opt2:
-    opt_crosscheck_dc = st.checkbox("Cross-check approval in DrugCentral", value=False, help="Require DrugCentral to also indicate approval (may reduce hits).")
+opt_only_phase4 = st.checkbox(
+    "Show only approved drugs (Phase 4)",
+    value=True,
+    help="Filters to max_phase ≥ 4."
+)
 
 genes_from_input: list[str] = []
 if manual_input.strip():
@@ -488,7 +451,7 @@ if run_btn:
 
         if not df_meta.empty:
             show_meta = df_meta.copy()
-            show_meta.insert(0, "#", range(1, len(show_meta) + 1))  # add serial numbers
+            show_meta.insert(0, "#", range(1, len(show_meta) + 1))
             st.dataframe(show_meta, use_container_width=True, hide_index=True)
             st.download_button(
                 "⬇️ Download metadata CSV",
@@ -543,7 +506,7 @@ if run_btn:
                 .sort_values(["n_genes", "max_score"], ascending=[False, False])
             )
             showD = agg.copy()
-            showD.insert(0, "#", range(1, len(showD) + 1))  # proper serial number
+            showD.insert(0, "#", range(1, len(showD) + 1))
             st.dataframe(showD, use_container_width=True, hide_index=True)
 
             st.download_button(
@@ -590,26 +553,9 @@ if run_btn:
                 ).reset_index()
             )
 
-            # Cast & primary approval flag (Phase 4)
+            # Internal approval flag based on Phase 4
             drug_sum["max_phase"] = pd.to_numeric(drug_sum["max_phase"], errors="coerce").fillna(0).astype(int)
-            drug_sum["approved_phase4"] = drug_sum["max_phase"] >= 4
-
-            # Optional DrugCentral cross-check column
-            if opt_crosscheck_dc:
-                st.caption("Cross-checking approvals in DrugCentral… (heuristic)")
-                dc_flags = []
-                for name in drug_sum["drug_name"].fillna(""):
-                    if not name:
-                        dc_flags.append(None)
-                        continue
-                    dc_flags.append(drugcentral_is_approved(name))
-                    time.sleep(0.05)
-                drug_sum["drugcentral_approved"] = dc_flags
-                # Final 'approved' = phase4 AND DrugCentral says approved (True)
-                drug_sum["approved"] = drug_sum["approved_phase4"] & (drug_sum["drugcentral_approved"] == True)
-            else:
-                drug_sum["drugcentral_approved"] = None
-                drug_sum["approved"] = drug_sum["approved_phase4"]
+            drug_sum["approved"] = drug_sum["max_phase"] >= 4
 
             # If user wants only approved, filter now
             if opt_only_phase4:
@@ -622,19 +568,15 @@ if run_btn:
             )
 
             if drug_sum.empty:
-                msg = "No drugs met the selected filters."
-                if opt_only_phase4 and not opt_crosscheck_dc:
-                    msg += " Tip: uncheck 'Show only approved (Phase 4)' to see investigational candidates."
-                if opt_crosscheck_dc:
-                    msg += " Tip: try turning off the DrugCentral cross-check."
+                msg = "No drugs met the selected filters. Tip: uncheck 'Show only approved (Phase 4)' to see investigational candidates."
                 st.info(msg)
             else:
-                # Display (with a serial '#')
+                # Display (with a serial '#'), omitting approved_phase4 and drugcentral_approved
                 showRx = drug_sum.copy()
                 showRx.insert(0, "#", range(1, len(showRx) + 1))
                 cols_order = [c for c in [
                     "#", "drug_id", "drug_name", "targets", "genes", "indications", "moa",
-                    "max_phase", "approved_phase4", "drugcentral_approved", "approved"
+                    "max_phase", "approved"
                 ] if c in showRx.columns]
                 other_cols = [c for c in showRx.columns if c not in cols_order]
                 st.dataframe(showRx[cols_order + other_cols], use_container_width=True, hide_index=True)
@@ -741,4 +683,4 @@ if run_btn:
                 st.warning(f"Network could not be drawn: {e}")
 
 st.markdown("---")
-st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL, optional DrugCentral. Data is fetched live and cached for 1h. Validate findings with primary sources.")
+st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL. Data is fetched live and cached for 1h. Validate findings with primary sources.")
