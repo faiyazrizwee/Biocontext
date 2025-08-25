@@ -313,28 +313,32 @@ def chembl_phase4_drugs_for_gene(gene_symbol: str, only_approved: bool = True) -
     tgt = chembl_target_from_gene(gene_symbol)
     if not tgt:
         return pd.DataFrame(columns=["gene","target_chembl_id","molecule_chembl_id","drug_name","moa",
-                                     "action_type","disease_name","efo_id","max_phase_for_indication"])
+                                     "action_type","disease_name","efo_id","max_phase_for_indication","approved"])
 
     mech = chembl_mechanisms_for_target(tgt)
     if mech.empty:
         return pd.DataFrame(columns=["gene","target_chembl_id","molecule_chembl_id","drug_name","moa",
-                                     "action_type","disease_name","efo_id","max_phase_for_indication"])
+                                     "action_type","disease_name","efo_id","max_phase_for_indication","approved"])
 
     frames = []
     for mid in sorted(set(mech["molecule_chembl_id"].dropna())):
         ind = chembl_indications_for_molecule(mid)
         if ind.empty:
-            # still keep drug without indication rows (as NA)
-            ind = pd.DataFrame([{"molecule_chembl_id": mid,
-                                 "efo_id": None, "disease_name": None,
-                                 "max_phase_for_indication": None}])
+            ind = pd.DataFrame([{
+                "molecule_chembl_id": mid,
+                "efo_id": None,
+                "disease_name": None,
+                "max_phase_for_indication": None
+            }])
         frames.append(ind)
         time.sleep(0.03)
 
     ind_all = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     df = mech.merge(ind_all, on="molecule_chembl_id", how="left")
-    df.insert(0, "gene", gene_symbol)
-    df.insert(1, "target_chembl_id", tgt)
+
+    # Safe assignments (won't raise if columns exist)
+    df["gene"] = gene_symbol
+    df["target_chembl_id"] = tgt
 
     # numeric phase + approved flag
     df["max_phase_for_indication"] = pd.to_numeric(df["max_phase_for_indication"], errors="coerce")
@@ -347,7 +351,13 @@ def chembl_phase4_drugs_for_gene(gene_symbol: str, only_approved: bool = True) -
     df["drug_name"] = df["drug_name"].fillna("").replace("", pd.NA)
     df["drug_name"] = df["drug_name"].fillna(df["molecule_chembl_id"])
 
+    # Ensure consistent column order
+    cols = ["gene","target_chembl_id","molecule_chembl_id","drug_name","moa","action_type",
+            "disease_name","efo_id","max_phase_for_indication","approved"]
+    df = df[[c for c in cols if c in df.columns]]
+
     return df.reset_index(drop=True)
+
 
 # Optional DrugCentral cross-check (best-effort; may be blank if API unreachable)
 @st.cache_data(ttl=3600)
