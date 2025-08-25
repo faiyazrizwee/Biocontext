@@ -2,7 +2,8 @@
 # -------------------------------------------------------------
 # BioContext – Gene2Therapy
 # Gene list → KEGG enrichment (counts-only) → Disease links (OpenTargets)
-# → Drug repurposing (OpenTargets + ChEMBL, optional DrugCentral) → Visualizations
+# → Drug repurposing (Phase-4 filter + optional DrugCentral cross-check)
+# → Visualizations
 # -------------------------------------------------------------
 
 import time
@@ -35,6 +36,7 @@ st.markdown(
     .soft-card { background: #0f172a; border-radius: 16px; padding: 16px; border: 1px solid #1e293b; }
     .accent { color: #7dd3fc; }
     .section-title { font-size: 1.1rem; margin: 0.25rem 0 0.5rem 0; }
+    .hint { color:#9bbcff; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -124,11 +126,6 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**Tips**")
     st.markdown("- Keep gene lists modest (≤100) to avoid API throttling.\n- Re-run if APIs rate-limit (we cache results for 1h).")
-    st.markdown("---")
-    approved_only_toggle = st.checkbox("✅ Show only approved (ChEMBL Phase 4)", value=True,
-                                       help="Filters final drug list to ChEMBL Phase 4 or with a first approval date.")
-    dc_toggle = st.checkbox("🔍 DrugCentral cross-check (experimental)", value=False,
-                            help="Attempts to detect your drugs in DrugCentral (best effort).")
 
 # ----------------------------
 # Caching helpers – KEGG / NCBI
@@ -275,121 +272,46 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
             "target": ensembl_id,
             "drug_id": drug_obj.get("id"),
             "drug_name": drug_obj.get("name"),
-            "ot_phase": r.get("phase"),  # keep OT phase separate
+            "phase": r.get("phase"),
             "moa": r.get("mechanismOfAction"),
             "diseases": "; ".join(filter(None, [disease_obj.get("name")])),
         })
-    df = pd.DataFrame(out)
-    # Drop blank/None drug names early
-    if not df.empty:
-        df = df[df["drug_name"].notna() & df["drug_name"].astype(str).str.strip().ne("")]
-        df = df.reset_index(drop=True)
-    return df
+    return pd.DataFrame(out)
 
 # ----------------------------
-# ChEMBL enrichment (approval filtering)
+# Optional: DrugCentral cross-check (approval status)
 # ----------------------------
 @st.cache_data(ttl=3600)
-def chembl_find_molecule(drug_name: str) -> dict | None:
-    """Find ChEMBL molecule by preferred name or full-text; return key fields."""
+def drugcentral_is_approved(drug_name: str) -> bool | None:
+    """
+    Heuristic cross-check against DrugCentral.
+    Returns True/False if determinable, else None on error/unknown.
+    """
     try:
-        # Try exact preferred name first
-        r = requests.get(
-            "https://www.ebi.ac.uk/chembl/api/data/molecule.json",
-            params={"pref_name__iexact": drug_name, "limit": 1},
-            timeout=30,
-        )
-        js = r.json()
-        if js.get("page_meta", {}).get("total_count", 0) == 0:
-            # Fallback: full-text search
-            r = requests.get(
-                "https://www.ebi.ac.uk/chembl/api/data/molecule/search.json",
-                params={"q": drug_name, "limit": 1},
-                timeout=30,
-            )
+        # Try a couple of lightweight endpoints
+        # 1) simple name search
+        r = requests.get("https://drugcentral.org/api/v1/drug", params={"name": drug_name}, timeout=30)
+        if r.status_code == 200:
             js = r.json()
-            hits = js.get("molecules", [])
-            if not hits:
-                return None
-            mid = hits[0]["molecule_chembl_id"]
-        else:
-            mid = js["molecules"][0]["molecule_chembl_id"]
+            # If it's a list of candidates, check any approval-related fields
+            if isinstance(js, list) and js:
+                j0 = js[0]
+            else:
+                j0 = js
+            s = str(j0).lower()
+            # crude signals the record is an approved product
+            if any(k in s for k in ["orange book", "fda", "rxnorm", "spl_id", "approval"]):
+                return True
 
-        # Get details
-        r = requests.get(f"https://www.ebi.ac.uk/chembl/api/data/molecule/{mid}.json", timeout=30)
-        m = r.json()
-        return {
-            "chembl_id": mid,
-            "chembl_max_phase": m.get("max_phase"),
-            "chembl_first_approval": m.get("first_approval"),
-            "chembl_atc": "; ".join(m.get("atc_classifications") or []),
-            "chembl_roa": "; ".join(m.get("dosage_form") or []) if isinstance(m.get("dosage_form"), list) else m.get("dosage_form"),
-        }
+        # 2) fallback text search
+        r2 = requests.get("https://drugcentral.org/api/v1/search", params={"q": drug_name}, timeout=30)
+        if r2.status_code == 200:
+            s2 = str(r2.json()).lower()
+            if any(k in s2 for k in ["orange book", "fda", "us approval", "ema approval", "approved"]):
+                return True
+        return None
     except Exception:
         return None
-
-@st.cache_data(ttl=3600)
-def enrich_with_chembl(df_drugs: pd.DataFrame) -> pd.DataFrame:
-    """Attach ChEMBL approval info to OpenTargets drugs."""
-    if df_drugs.empty:
-        return df_drugs
-
-    unique_drugs = sorted(set(df_drugs["drug_name"].dropna().astype(str)))
-    records = []
-    for name in unique_drugs:
-        chem = chembl_find_molecule(name) or {}
-        records.append({
-            "drug_name": name,
-            "chembl_id": chem.get("chembl_id"),
-            "chembl_max_phase": chem.get("chembl_max_phase"),
-            "chembl_first_approval": chem.get("chembl_first_approval"),
-            "chembl_atc": chem.get("chembl_atc"),
-            "chembl_roa": chem.get("chembl_roa"),
-        })
-        time.sleep(0.05)  # be gentle
-    info = pd.DataFrame.from_records(records)
-    out = df_drugs.merge(info, on="drug_name", how="left")
-
-    def _num(x):
-        return pd.to_numeric(x, errors="coerce")
-    out["approved"] = (
-        (_num(out["chembl_max_phase"]).fillna(0) >= 4) |
-        (out["chembl_first_approval"].notna() & (out["chembl_first_approval"] != ""))
-    )
-    return out
-
-# ----------------------------
-# Optional DrugCentral presence check (best-effort)
-# ----------------------------
-@st.cache_data(ttl=3600)
-def drugcentral_hit(drug_name: str) -> bool | None:
-    """Return True if DrugCentral returns a hit for the drug_name; None on failure."""
-    try:
-        for url in [
-            "https://drugcentral.org/api/activeingredient",
-            "https://drugcentral.org/api/drug"
-        ]:
-            r = requests.get(url, params={"name": drug_name}, timeout=30)
-            if r.status_code == 200:
-                js = r.json()
-                if (isinstance(js, list) and len(js) > 0) or (isinstance(js, dict) and js):
-                    return True
-        return False
-    except Exception:
-        return None
-
-@st.cache_data(ttl=3600)
-def enrich_with_drugcentral_presence(df_drugs: pd.DataFrame) -> pd.DataFrame:
-    if df_drugs.empty:
-        return df_drugs
-    unique_drugs = sorted(set(df_drugs["drug_name"].dropna().astype(str)))
-    rows = []
-    for name in unique_drugs:
-        hit = drugcentral_hit(name)
-        rows.append({"drug_name": name, "drugcentral_hit": hit})
-        time.sleep(0.05)
-    dc = pd.DataFrame(rows)
-    return df_drugs.merge(dc, on="drug_name", how="left")
 
 # ----------------------------
 # Core functions
@@ -481,12 +403,8 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
             frames.append(df)
         time.sleep(0.05)
     if frames:
-        df = pd.concat(frames, ignore_index=True)
-        # Drop blank/None drug names here too (extra safety)
-        df = df[df["drug_name"].notna() & df["drug_name"].astype(str).str.strip().ne("")]
-        df = df.reset_index(drop=True)
-        return df
-    return pd.DataFrame(columns=["gene", "target", "drug_id", "drug_name", "ot_phase", "moa", "diseases"])
+        return pd.concat(frames, ignore_index=True)
+    return pd.DataFrame(columns=["gene", "target", "drug_id", "drug_name", "phase", "moa", "diseases"])
 
 # ----------------------------
 # UI – Inputs
@@ -516,6 +434,14 @@ manual_input = st.text_area(
     "Or paste gene symbols here (comma, space, or newline separated):",
     placeholder="e.g. TP53, BRCA1, EGFR, MYC"
 )
+
+# ---- New: Pre-analysis drug filters ----
+st.markdown("#### Drug filters (applied in the Drug Suggestions tab)")
+col_opt1, col_opt2 = st.columns(2)
+with col_opt1:
+    opt_only_phase4 = st.checkbox("Show only approved drugs (Phase 4)", value=True, help="Filters to max_phase ≥ 4.")
+with col_opt2:
+    opt_crosscheck_dc = st.checkbox("Cross-check approval in DrugCentral", value=False, help="Require DrugCentral to also indicate approval (may reduce hits).")
 
 genes_from_input: list[str] = []
 if manual_input.strip():
@@ -646,79 +572,84 @@ if run_btn:
     with drug_tab:
         st.markdown('<div class="section-title">Step 4 — Repurposable Drug Suggestions</div>', unsafe_allow_html=True)
         with st.spinner("Fetching known drugs targeting your genes..."):
-            df_drugs_raw = collect_drug_suggestions(g2t)
+            df_drugs = collect_drug_suggestions(g2t)
 
-        if df_drugs_raw.empty:
+        if df_drugs.empty:
             st.info("No drugs found for the mapped targets.")
         else:
-            # Enrich with ChEMBL approval info
-            df_drugs = enrich_with_chembl(df_drugs_raw)
+            # Rank per-row by phase (robust cast), then aggregate
+            df_drugs["phase_rank"] = pd.to_numeric(df_drugs["phase"], errors="coerce").fillna(0).astype(int)
 
-            # Optional DrugCentral presence check
-            if dc_toggle:
-                df_drugs = enrich_with_drugcentral_presence(df_drugs)
-
-            # Aggregate per drug
             drug_sum = (
                 df_drugs.groupby(["drug_id", "drug_name"]).agg(
                     targets=("target", lambda s: ";".join(sorted(set(s)))),
                     genes=("gene", lambda s: ";".join(sorted(set(s)))),
                     indications=("diseases", lambda s: "; ".join(sorted({x for x in "; ".join(s).split("; ") if x}))),
                     moa=("moa", lambda s: "; ".join(sorted({x for x in s if x}))),
-                    max_ot_phase=("ot_phase", "max"),
-                    chembl_id=("chembl_id", "first"),
-                    chembl_max_phase=("chembl_max_phase", "max"),
-                    chembl_first_approval=("chembl_first_approval", "first"),
-                    chembl_atc=("chembl_atc", "first"),
-                    chembl_roa=("chembl_roa", "first"),
-                    approved=("approved", "max"),
-                    drugcentral_hit=("drugcentral_hit", "max") if "drugcentral_hit" in df_drugs.columns else ("approved", "max"),
+                    max_phase=("phase", "max"),
                 ).reset_index()
             )
 
-            # Clean numeric/sort
-            drug_sum["chembl_max_phase"] = pd.to_numeric(drug_sum["chembl_max_phase"], errors="coerce").fillna(0).astype(int)
-            drug_sum["max_ot_phase"] = pd.to_numeric(drug_sum["max_ot_phase"], errors="coerce").fillna(0).astype(int)
+            # Cast & primary approval flag (Phase 4)
+            drug_sum["max_phase"] = pd.to_numeric(drug_sum["max_phase"], errors="coerce").fillna(0).astype(int)
+            drug_sum["approved_phase4"] = drug_sum["max_phase"] >= 4
 
-            # Apply sidebar choice
-            view = drug_sum.copy()
-            if approved_only_toggle:
-                view = view[view["approved"] == True]
+            # Optional DrugCentral cross-check column
+            if opt_crosscheck_dc:
+                st.caption("Cross-checking approvals in DrugCentral… (heuristic)")
+                dc_flags = []
+                for name in drug_sum["drug_name"].fillna(""):
+                    if not name:
+                        dc_flags.append(None)
+                        continue
+                    dc_flags.append(drugcentral_is_approved(name))
+                    time.sleep(0.05)
+                drug_sum["drugcentral_approved"] = dc_flags
+                # Final 'approved' = phase4 AND DrugCentral says approved (True)
+                drug_sum["approved"] = drug_sum["approved_phase4"] & (drug_sum["drugcentral_approved"] == True)
+            else:
+                drug_sum["drugcentral_approved"] = None
+                drug_sum["approved"] = drug_sum["approved_phase4"]
 
-            # Sort: approved first, higher ChEMBL phase, then OT phase, then name
-            view = view.sort_values(
-                ["approved", "chembl_max_phase", "max_ot_phase", "drug_name"],
-                ascending=[False, False, False, True]
+            # If user wants only approved, filter now
+            if opt_only_phase4:
+                drug_sum = drug_sum[drug_sum["approved"] == True]
+
+            # Sort and show
+            drug_sum = drug_sum.sort_values(
+                ["approved", "max_phase", "drug_name"],
+                ascending=[False, False, True]
             )
 
-            # Display with serial '#'
-            showRx = view.copy()
-            showRx.insert(0, "#", range(1, len(showRx) + 1))
+            if drug_sum.empty:
+                msg = "No drugs met the selected filters."
+                if opt_only_phase4 and not opt_crosscheck_dc:
+                    msg += " Tip: uncheck 'Show only approved (Phase 4)' to see investigational candidates."
+                if opt_crosscheck_dc:
+                    msg += " Tip: try turning off the DrugCentral cross-check."
+                st.info(msg)
+            else:
+                # Display (with a serial '#')
+                showRx = drug_sum.copy()
+                showRx.insert(0, "#", range(1, len(showRx) + 1))
+                cols_order = [c for c in [
+                    "#", "drug_id", "drug_name", "targets", "genes", "indications", "moa",
+                    "max_phase", "approved_phase4", "drugcentral_approved", "approved"
+                ] if c in showRx.columns]
+                other_cols = [c for c in showRx.columns if c not in cols_order]
+                st.dataframe(showRx[cols_order + other_cols], use_container_width=True, hide_index=True)
 
-            # Preferred column order
-            col_order = [
-                "#", "drug_id", "drug_name", "approved",
-                "chembl_max_phase", "chembl_first_approval", "chembl_id",
-                "targets", "genes", "indications", "moa",
-            ]
-            if "drugcentral_hit" in showRx.columns:
-                col_order.insert(4, "drugcentral_hit")  # show after approved
-
-            cols_order = [c for c in col_order if c in showRx.columns]
-            other_cols = [c for c in showRx.columns if c not in cols_order]
-            st.markdown("**Drugs that hit at least one of your targets**")
-            st.dataframe(showRx[cols_order + other_cols], use_container_width=True, hide_index=True)
-
+            # Raw downloads
             st.download_button(
-                "⬇️ Download drug suggestions (per target, enriched with ChEMBL)",
+                "⬇️ Download drug suggestions (per target)",
                 data=df_drugs.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_per_target_chembl.csv",
+                file_name="drug_suggestions_per_target.csv",
                 mime="text/csv"
             )
             st.download_button(
-                "⬇️ Download drug suggestions (aggregated, approved flag)",
+                "⬇️ Download drug suggestions (aggregated + filters)",
                 data=drug_sum.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_aggregated_chembl.csv",
+                file_name="drug_suggestions_aggregated_filtered.csv",
                 mime="text/csv"
             )
 
@@ -740,10 +671,10 @@ if run_btn:
                     dis_list = sorted(top_dis)
 
                     drugs_set = []
-                    if 'df_drugs_raw' in locals() and not df_drugs_raw.empty:
-                        tmp = df_drugs_raw[df_drugs_raw['gene'].isin(genes_set)].copy()
-                        tmp['ot_phase_rank'] = pd.to_numeric(tmp['ot_phase'], errors='coerce').fillna(0).astype(int)
-                        tmp = tmp.sort_values('ot_phase_rank', ascending=False)
+                    if 'df_drugs' in locals() and not df_drugs.empty:
+                        tmp = df_drugs[df_drugs['gene'].isin(genes_set)].copy()
+                        tmp['phase_rank'] = pd.to_numeric(tmp['phase'], errors='coerce').fillna(0).astype(int)
+                        tmp = tmp.sort_values('phase_rank', ascending=False)
                         drugs_set = sorted(set(tmp.head(100)['drug_name']))[:15]
 
                     nodes = [f"G: {g}" for g in genes_set] + [f"D: {d}" for d in dis_list] + [f"Rx: {d}" for d in drugs_set]
@@ -754,13 +685,13 @@ if run_btn:
                         sub = df_dis[df_dis["disease_name"] == d]
                         for g, cnt in Counter(sub["gene"]).items():
                             links.append((node_index[f"G: {g}"], node_index[f"D: {d}"], max(cnt, 1)))
-                    if drugs_set and 'df_drugs_raw' in locals() and not df_drugs_raw.empty:
-                        tmp = df_drugs_raw[df_drugs_raw['drug_name'].isin(drugs_set) & df_drugs_raw['gene'].isin(genes_set)]
+                    if drugs_set and 'df_drugs' in locals() and not df_drugs.empty:
+                        tmp = df_drugs[df_drugs['drug_name'].isin(drugs_set) & df_drugs['gene'].isin(genes_set)]
                         for _, row in tmp.iterrows():
                             s = node_index[f"G: {row['gene']}"]
                             t = node_index.get(f"Rx: {row['drug_name']}")
                             if t is not None:
-                                val = int(pd.to_numeric(row.get('ot_phase'), errors='coerce') or 0)
+                                val = int(pd.to_numeric(row.get('phase'), errors='coerce') or 0)
                                 links.append((s, t, max(val, 1)))
 
                     if links:
@@ -810,4 +741,4 @@ if run_btn:
                 st.warning(f"Network could not be drawn: {e}")
 
 st.markdown("---")
-st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL + ChEMBL (approval). Optional DrugCentral presence check. Data is fetched live and cached for 1h. Validate findings with primary sources.")
+st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL, optional DrugCentral. Data is fetched live and cached for 1h. Validate findings with primary sources.")
