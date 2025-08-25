@@ -124,10 +124,11 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**Tips**")
     st.markdown("- Keep gene lists modest (≤100) to avoid API throttling.\n- Re-run if APIs rate-limit (we cache results for 1h).")
-
     st.markdown("---")
+    approved_only_toggle = st.checkbox("✅ Show only approved (ChEMBL Phase 4)", value=True,
+                                       help="Filters final drug list to ChEMBL Phase 4 or with a first approval date.")
     dc_toggle = st.checkbox("🔍 DrugCentral cross-check (experimental)", value=False,
-                            help="Attempts to find your drugs in DrugCentral. Safe fallback if API unavailable.")
+                            help="Attempts to detect your drugs in DrugCentral (best effort).")
 
 # ----------------------------
 # Caching helpers – KEGG / NCBI
@@ -278,7 +279,12 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
             "moa": r.get("mechanismOfAction"),
             "diseases": "; ".join(filter(None, [disease_obj.get("name")])),
         })
-    return pd.DataFrame(out)
+    df = pd.DataFrame(out)
+    # Drop blank/None drug names early
+    if not df.empty:
+        df = df[df["drug_name"].notna() & df["drug_name"].astype(str).str.strip().ne("")]
+        df = df.reset_index(drop=True)
+    return df
 
 # ----------------------------
 # ChEMBL enrichment (approval filtering)
@@ -344,8 +350,7 @@ def enrich_with_chembl(df_drugs: pd.DataFrame) -> pd.DataFrame:
     info = pd.DataFrame.from_records(records)
     out = df_drugs.merge(info, on="drug_name", how="left")
 
-    # Compute 'approved' using ChEMBL phase / first_approval
-    def _num(x): 
+    def _num(x):
         return pd.to_numeric(x, errors="coerce")
     out["approved"] = (
         (_num(out["chembl_max_phase"]).fillna(0) >= 4) |
@@ -360,7 +365,6 @@ def enrich_with_chembl(df_drugs: pd.DataFrame) -> pd.DataFrame:
 def drugcentral_hit(drug_name: str) -> bool | None:
     """Return True if DrugCentral returns a hit for the drug_name; None on failure."""
     try:
-        # Try a couple of public endpoints; treat any non-empty JSON as a 'hit'
         for url in [
             "https://drugcentral.org/api/activeingredient",
             "https://drugcentral.org/api/drug"
@@ -477,7 +481,11 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
             frames.append(df)
         time.sleep(0.05)
     if frames:
-        return pd.concat(frames, ignore_index=True)
+        df = pd.concat(frames, ignore_index=True)
+        # Drop blank/None drug names here too (extra safety)
+        df = df[df["drug_name"].notna() & df["drug_name"].astype(str).str.strip().ne("")]
+        df = df.reset_index(drop=True)
+        return df
     return pd.DataFrame(columns=["gene", "target", "drug_id", "drug_name", "ot_phase", "moa", "diseases"])
 
 # ----------------------------
@@ -664,7 +672,7 @@ if run_btn:
                     chembl_atc=("chembl_atc", "first"),
                     chembl_roa=("chembl_roa", "first"),
                     approved=("approved", "max"),
-                    drugcentral_hit=("drugcentral_hit", "max") if "drugcentral_hit" in df_drugs.columns else ("approved", "max"),  # harmless placeholder
+                    drugcentral_hit=("drugcentral_hit", "max") if "drugcentral_hit" in df_drugs.columns else ("approved", "max"),
                 ).reset_index()
             )
 
@@ -672,10 +680,9 @@ if run_btn:
             drug_sum["chembl_max_phase"] = pd.to_numeric(drug_sum["chembl_max_phase"], errors="coerce").fillna(0).astype(int)
             drug_sum["max_ot_phase"] = pd.to_numeric(drug_sum["max_ot_phase"], errors="coerce").fillna(0).astype(int)
 
-            # Default: show only approved (ChEMBL Phase 4) with a toggle
-            only_approved = st.checkbox("✅ Show only approved (ChEMBL Phase 4)", value=True)
+            # Apply sidebar choice
             view = drug_sum.copy()
-            if only_approved:
+            if approved_only_toggle:
                 view = view[view["approved"] == True]
 
             # Sort: approved first, higher ChEMBL phase, then OT phase, then name
