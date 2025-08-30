@@ -2,7 +2,7 @@
 # -------------------------------------------------------------
 # BioContext – Gene2Therapy
 # Gene list → KEGG enrichment (counts-only) → Disease links (OpenTargets)
-# → Drug repurposing (Phase-4 filter)
+# → Drug suggestions (PharmGKB)
 # → Visualizations
 # -------------------------------------------------------------
 
@@ -121,7 +121,7 @@ def load_genes_from_any(uploaded_file) -> list[str]:
 # ----------------------------
 with st.sidebar:
     st.markdown("### 🧪 BioContext")
-    st.caption("Gene metadata, pathway enrichment, disease links & drug repurposing")
+    st.caption("Gene metadata, pathway enrichment, disease links & drug suggestions")
     st.markdown("---")
     st.markdown("**Tips**")
     st.markdown("- Keep gene lists modest (≤100) to avoid API throttling.\n- Re-run if APIs rate-limit (we cache results for 1h).")
@@ -188,7 +188,7 @@ def kegg_pathway_name(pathway_id: str) -> str | None:
     return None
 
 # ----------------------------
-# OpenTargets (no API key)
+# OpenTargets (no API key) – still used for disease links
 # ----------------------------
 OT_GQL = "https://api.platform.opentargets.org/api/v4/graphql"
 
@@ -244,38 +244,102 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
         })
     return pd.DataFrame(out)
 
+# ----------------------------
+# PharmGKB (no API key) – NEW for Drug Suggestions
+# ----------------------------
+PGKB = "https://api.pharmgkb.org/v1"
+
 @st.cache_data(ttl=3600)
-def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
-    q = """
-    query KnownDrugs($id: String!, $size: Int!) {
-      target(ensemblId: $id) {
-        id
-        knownDrugs(size: $size) {
-          rows {
-            phase
-            mechanismOfAction
-            drug { id name }
-            disease { id name }
-          }
-        }
-      }
-    }
+def pgkb_get(path: str, params: dict | None = None) -> dict:
+    """Generic GET to PharmGKB; returns dict with 'data' when available."""
+    try:
+        r = requests.get(f"{PGKB}{path}", params=params or {}, timeout=40)
+        if r.status_code >= 400:
+            return {}
+        js = r.json()
+        return js if isinstance(js, dict) else {}
+    except Exception:
+        return {}
+
+@st.cache_data(ttl=3600)
+def pgkb_gene_from_symbol(symbol: str) -> dict | None:
     """
-    data = ot_query(q, {"id": ensembl_id, "size": size})
-    rows = (((data or {}).get("data", {})).get("target", {}) or {}).get("knownDrugs", {}).get("rows", [])
-    out = []
-    for r in rows:
-        drug_obj = r.get("drug") or {}
-        disease_obj = r.get("disease") or {}
-        out.append({
-            "target": ensembl_id,
-            "drug_id": drug_obj.get("id"),
-            "drug_name": drug_obj.get("name"),
-            "phase": r.get("phase"),
-            "moa": r.get("mechanismOfAction"),
-            "diseases": "; ".join(filter(None, [disease_obj.get("name")])),
-        })
-    return pd.DataFrame(out)
+    Map gene symbol -> PharmGKB gene object.
+    Uses search API scoped to genes and falls back to direct gene query by symbol.
+    """
+    # 1) Search endpoint (more permissive)
+    res = pgkb_get("/data/search", {"q": symbol, "resource": "genes", "limit": 5})
+    hits = (res or {}).get("data", []) or []
+    for h in hits:
+        # Typical fields: {'id': 'PAxxxxxx', 'name': 'TP53', 'symbol': 'TP53', ...}
+        if str(h.get("symbol") or "").upper() == symbol.upper() or str(h.get("name") or "").upper() == symbol.upper():
+            return {"id": h.get("id"), "symbol": h.get("symbol") or h.get("name")}
+    # 2) Fallback: try direct gene endpoint filtered by symbol
+    res2 = pgkb_get("/data/gene", {"symbol": symbol})
+    data2 = (res2 or {}).get("data", []) or []
+    if data2:
+        g = data2[0]
+        return {"id": g.get("id"), "symbol": g.get("symbol") or g.get("name")}
+    return None
+
+@st.cache_data(ttl=3600)
+def pgkb_drugs_for_gene(gene_id: str) -> pd.DataFrame:
+    """
+    Build a per-gene table of drug suggestions from PharmGKB by combining:
+    - relationships (gene↔drug links)
+    - clinical annotations (captures Level of Evidence and chemical list)
+    Returns DataFrame columns: drug_id, drug_name, evidence_level (optional), source
+    """
+    rows = []
+
+    # A) Relationships: entityId=<gene_id>, filter to Drug objects
+    rel = pgkb_get("/data/relationships", {"entityId": gene_id, "limit": 1000})
+    for item in (rel or {}).get("data", []) or []:
+        subj = item.get("subject", {}) or {}
+        obj = item.get("object", {}) or {}
+        # Gene could be subject or object; pick the drug on the other side
+        cand = None
+        if (obj.get("type") or "").lower() == "drug":
+            cand = obj
+        elif (subj.get("type") or "").lower() == "drug":
+            cand = subj
+        if cand:
+            rows.append({
+                "drug_id": cand.get("id"),
+                "drug_name": cand.get("name"),
+                "evidence_level": None,
+                "source": "relationship"
+            })
+
+    # B) Clinical Annotations: geneId=<gene_id>, include chemicals with levelOfEvidence
+    ca = pgkb_get("/data/clinicalAnnotations", {"geneId": gene_id, "limit": 1000})
+    for ann in (ca or {}).get("data", []) or []:
+        lvl = ann.get("levelOfEvidence")
+        for chem in ann.get("chemicals", []) or []:
+            rows.append({
+                "drug_id": chem.get("id"),
+                "drug_name": chem.get("name"),
+                "evidence_level": lvl,
+                "source": "clinical_annotation"
+            })
+
+    if not rows:
+        return pd.DataFrame(columns=["drug_id", "drug_name", "evidence_level", "source"])
+
+    df = pd.DataFrame(rows)
+    # normalize names/ids
+    df["drug_id"] = df["drug_id"].astype(str)
+    df["drug_name"] = df["drug_name"].astype(str)
+
+    # De-duplicate: prefer entries with evidence_level (clinical annotations) over plain relationships
+    df["has_evidence"] = df["evidence_level"].notna()
+    df = (
+        df.sort_values(["has_evidence", "drug_name"], ascending=[False, True])
+          .drop_duplicates(subset=["drug_id", "drug_name"], keep="first")
+          .drop(columns=["has_evidence"])
+          .reset_index(drop=True)
+    )
+    return df
 
 # ----------------------------
 # Core functions
@@ -325,7 +389,7 @@ def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
     return df
 
 # ----------------------------
-# Cohort-level OpenTargets: mapping, diseases, drugs
+# Cohort-level: mapping, diseases (OT), drugs (PharmGKB)
 # ----------------------------
 @st.cache_data(ttl=3600)
 def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens") -> dict:
@@ -354,20 +418,29 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
     return pd.DataFrame(columns=["gene", "target", "disease_id", "disease_name", "association_score"])
 
 @st.cache_data(ttl=3600)
-def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
+def collect_drug_suggestions_pharmgkb(genes: list[str]) -> pd.DataFrame:
+    """
+    For each gene symbol:
+      1) map to PharmGKB gene id
+      2) fetch related drugs (relationships + clinical annotations)
+    Returns a per-gene table analogous to prior OT version (sans phase fields).
+    """
     frames = []
-    for g, tgt in gene_to_target.items():
-        tid = tgt.get("id")
-        if not tid:
+    for g in genes:
+        try:
+            ghit = pgkb_gene_from_symbol(g)
+            if not ghit or not ghit.get("id"):
+                continue
+            df = pgkb_drugs_for_gene(ghit["id"])
+            if not df.empty:
+                df.insert(0, "gene", g)
+                frames.append(df)
+            time.sleep(0.05)
+        except Exception:
             continue
-        df = ot_drugs_for_target(tid)
-        if not df.empty:
-            df.insert(0, "gene", g)
-            frames.append(df)
-        time.sleep(0.05)
     if frames:
         return pd.concat(frames, ignore_index=True)
-    return pd.DataFrame(columns=["gene", "target", "drug_id", "drug_name", "phase", "moa", "diseases"])
+    return pd.DataFrame(columns=["gene", "drug_id", "drug_name", "evidence_level", "source"])
 
 # ----------------------------
 # UI – Inputs
@@ -398,14 +471,7 @@ manual_input = st.text_area(
     placeholder="e.g. TP53, BRCA1, EGFR, MYC"
 )
 
-# ---- Drug filters (applied in the Drug Suggestions tab)
-st.markdown("#### Drug filters (applied in the Drug Suggestions tab)")
-opt_only_phase4 = st.checkbox(
-    "Show only approved drugs (Phase 4)",
-    value=True,
-    help="Filters to max_phase ≥ 4."
-)
-
+# (Removed Phase-4 checkbox: PharmGKB doesn't provide clinical trial phase)
 genes_from_input: list[str] = []
 if manual_input.strip():
     genes_from_input = (
@@ -488,7 +554,7 @@ if run_btn:
             except Exception:
                 pass
 
-    # -------- Step 3: Disease Links --------
+    # -------- Step 3: Disease Links (OpenTargets) --------
     with disease_tab:
         st.markdown('<div class="section-title">Step 3 — Disease Associations (OpenTargets)</div>', unsafe_allow_html=True)
         with st.spinner("Mapping symbols to Ensembl IDs and fetching disease links..."):
@@ -531,67 +597,47 @@ if run_btn:
             except Exception:
                 pass
 
-    # -------- Step 4: Drug Suggestions --------
+    # -------- Step 4: Drug Suggestions (PharmGKB) --------
     with drug_tab:
-        st.markdown('<div class="section-title">Step 4 — Repurposable Drug Suggestions</div>', unsafe_allow_html=True)
-        with st.spinner("Fetching known drugs targeting your genes..."):
-            df_drugs = collect_drug_suggestions(g2t)
+        st.markdown('<div class="section-title">Step 4 — Repurposable Drug Suggestions (PharmGKB)</div>', unsafe_allow_html=True)
+        with st.spinner("Fetching PharmGKB gene–drug evidence..."):
+            df_drugs_pgkb = collect_drug_suggestions_pharmgkb(genes)
 
-        if df_drugs.empty:
-            st.info("No drugs found for the mapped targets.")
+        if df_drugs_pgkb.empty:
+            st.info("No PharmGKB drug links found for the provided genes.")
         else:
-            # Rank per-row by phase (robust cast), then aggregate
-            df_drugs["phase_rank"] = pd.to_numeric(df_drugs["phase"], errors="coerce").fillna(0).astype(int)
+            # Aggregate to drug level (no phases; keep evidence levels if present)
+            def _agg_unique(series):
+                return "; ".join(sorted({x for x in series if x}))
 
             drug_sum = (
-                df_drugs.groupby(["drug_id", "drug_name"]).agg(
-                    targets=("target", lambda s: ";".join(sorted(set(s)))),
+                df_drugs_pgkb.groupby(["drug_id", "drug_name"]).agg(
                     genes=("gene", lambda s: ";".join(sorted(set(s)))),
-                    indications=("diseases", lambda s: "; ".join(sorted({x for x in "; ".join(s).split("; ") if x}))),
-                    moa=("moa", lambda s: "; ".join(sorted({x for x in s if x}))),
-                    max_phase=("phase", "max"),
+                    evidence_levels=("evidence_level", _agg_unique),
+                    sources=("source", _agg_unique)
                 ).reset_index()
             )
 
-            # Internal approval flag based on Phase 4
-            drug_sum["max_phase"] = pd.to_numeric(drug_sum["max_phase"], errors="coerce").fillna(0).astype(int)
-            drug_sum["approved"] = drug_sum["max_phase"] >= 4
-
-            # If user wants only approved, filter now
-            if opt_only_phase4:
-                drug_sum = drug_sum[drug_sum["approved"] == True]
-
-            # Sort and show
-            drug_sum = drug_sum.sort_values(
-                ["approved", "max_phase", "drug_name"],
-                ascending=[False, False, True]
-            )
-
-            if drug_sum.empty:
-                msg = "No drugs met the selected filters. Tip: uncheck 'Show only approved (Phase 4)' to see investigational candidates."
-                st.info(msg)
-            else:
-                # Display (with a serial '#'), omitting approved_phase4 and drugcentral_approved
-                showRx = drug_sum.copy()
-                showRx.insert(0, "#", range(1, len(showRx) + 1))
-                cols_order = [c for c in [
-                    "#", "drug_id", "drug_name", "targets", "genes", "indications", "moa",
-                    "max_phase", "approved"
-                ] if c in showRx.columns]
-                other_cols = [c for c in showRx.columns if c not in cols_order]
-                st.dataframe(showRx[cols_order + other_cols], use_container_width=True, hide_index=True)
+            # Display
+            showRx = drug_sum.copy()
+            showRx.insert(0, "#", range(1, len(showRx) + 1))
+            cols_order = [c for c in [
+                "#", "drug_id", "drug_name", "genes", "evidence_levels", "sources"
+            ] if c in showRx.columns]
+            other_cols = [c for c in showRx.columns if c not in cols_order]
+            st.dataframe(showRx[cols_order + other_cols], use_container_width=True, hide_index=True)
 
             # Raw downloads
             st.download_button(
-                "⬇️ Download drug suggestions (per target)",
-                data=df_drugs.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_per_target.csv",
+                "⬇️ Download PharmGKB drug links (per gene)",
+                data=df_drugs_pgkb.to_csv(index=False).encode("utf-8"),
+                file_name="drug_suggestions_per_gene_pharmgkb.csv",
                 mime="text/csv"
             )
             st.download_button(
-                "⬇️ Download drug suggestions (aggregated + filters)",
+                "⬇️ Download PharmGKB drug summary (aggregated)",
                 data=drug_sum.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_aggregated_filtered.csv",
+                file_name="drug_suggestions_aggregated_pharmgkb.csv",
                 mime="text/csv"
             )
 
@@ -600,9 +646,14 @@ if run_btn:
         st.markdown('<div class="section-title">Step 5 — Visualize the landscape</div>', unsafe_allow_html=True)
         colA, colB = st.columns(2)
 
-        # Sankey: Genes → Diseases (top 10) → Drugs (optional)
+        # Sankey: Genes → Diseases (top 10) → Drugs (top 15 by mention)
         with colA:
             try:
+                links = []
+                nodes = []
+                node_index = {}
+
+                # Genes and top diseases (same as before)
                 if 'df_dis' in locals() and not df_dis.empty:
                     aggD = (
                         df_dis.groupby("disease_name").agg(n_genes=("gene", lambda s: len(set(s)))).reset_index()
@@ -612,29 +663,27 @@ if run_btn:
                     genes_set = sorted(set(df_dis[df_dis["disease_name"].isin(top_dis)]["gene"]))
                     dis_list = sorted(top_dis)
 
+                    # Drugs from PharmGKB (frequency)
                     drugs_set = []
-                    if 'df_drugs' in locals() and not df_drugs.empty:
-                        tmp = df_drugs[df_drugs['gene'].isin(genes_set)].copy()
-                        tmp['phase_rank'] = pd.to_numeric(tmp['phase'], errors='coerce').fillna(0).astype(int)
-                        tmp = tmp.sort_values('phase_rank', ascending=False)
-                        drugs_set = sorted(set(tmp.head(100)['drug_name']))[:15]
+                    if 'df_drugs_pgkb' in locals() and not df_drugs_pgkb.empty:
+                        freq = df_drugs_pgkb.groupby("drug_name")["gene"].nunique().sort_values(ascending=False)
+                        drugs_set = freq.head(15).index.tolist()
 
                     nodes = [f"G: {g}" for g in genes_set] + [f"D: {d}" for d in dis_list] + [f"Rx: {d}" for d in drugs_set]
                     node_index = {n: i for i, n in enumerate(nodes)}
 
-                    links = []
                     for d in dis_list:
                         sub = df_dis[df_dis["disease_name"] == d]
                         for g, cnt in Counter(sub["gene"]).items():
                             links.append((node_index[f"G: {g}"], node_index[f"D: {d}"], max(cnt, 1)))
-                    if drugs_set and 'df_drugs' in locals() and not df_drugs.empty:
-                        tmp = df_drugs[df_drugs['drug_name'].isin(drugs_set) & df_drugs['gene'].isin(genes_set)]
+
+                    if drugs_set and 'df_drugs_pgkb' in locals() and not df_drugs_pgkb.empty:
+                        tmp = df_drugs_pgkb[df_drugs_pgkb['drug_name'].isin(drugs_set) & df_drugs_pgkb['gene'].isin(genes_set)]
                         for _, row in tmp.iterrows():
                             s = node_index[f"G: {row['gene']}"]
                             t = node_index.get(f"Rx: {row['drug_name']}")
                             if t is not None:
-                                val = int(pd.to_numeric(row.get('phase'), errors='coerce') or 0)
-                                links.append((s, t, max(val, 1)))
+                                links.append((s, t, 1))
 
                     if links:
                         sources = [s for s, _, _ in links]
@@ -644,7 +693,7 @@ if run_btn:
                             node=dict(pad=12, thickness=14, label=nodes),
                             link=dict(source=sources, target=targets, value=values),
                         )])
-                        fig_sankey.update_layout(title_text="Gene → Disease (→ Drug) connections", height=700)
+                        fig_sankey.update_layout(title_text="Gene → Disease (→ Drug, PharmGKB) connections", height=700)
                         st.plotly_chart(fig_sankey, use_container_width=True)
             except Exception as e:
                 st.warning(f"Sankey could not be drawn: {e}")
@@ -683,4 +732,4 @@ if run_btn:
                 st.warning(f"Network could not be drawn: {e}")
 
 st.markdown("---")
-st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL. Data is fetched live and cached for 1h. Validate findings with primary sources.")
+st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL (disease links), PharmGKB (drug links). Data is fetched live and cached for 1h. Validate findings with primary sources.")
