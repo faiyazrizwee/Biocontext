@@ -251,9 +251,12 @@ PGKB = "https://api.pharmgkb.org/v1"
 
 @st.cache_data(ttl=3600)
 def pgkb_get(path: str, params: dict | None = None) -> dict:
-    """Generic GET to PharmGKB; returns dict with 'data' when available."""
+    """Generic GET to PharmGKB; returns dict with 'data' when available. Retries once on 429."""
     try:
         r = requests.get(f"{PGKB}{path}", params=params or {}, timeout=40)
+        if r.status_code == 429:
+            time.sleep(1.0)
+            r = requests.get(f"{PGKB}{path}", params=params or {}, timeout=40)
         if r.status_code >= 400:
             return {}
         js = r.json()
@@ -267,13 +270,12 @@ def pgkb_gene_from_symbol(symbol: str) -> dict | None:
     Map gene symbol -> PharmGKB gene object.
     Uses search API scoped to genes and falls back to direct gene query by symbol.
     """
-    # 1) Search endpoint (more permissive)
     res = pgkb_get("/data/search", {"q": symbol, "resource": "genes", "limit": 5})
     hits = (res or {}).get("data", []) or []
     for h in hits:
         if str(h.get("symbol") or "").upper() == symbol.upper() or str(h.get("name") or "").upper() == symbol.upper():
             return {"id": h.get("id"), "symbol": h.get("symbol") or h.get("name")}
-    # 2) Fallback: try direct gene endpoint filtered by symbol
+    # Fallback: direct gene endpoint
     res2 = pgkb_get("/data/gene", {"symbol": symbol})
     data2 = (res2 or {}).get("data", []) or []
     if data2:
@@ -285,21 +287,23 @@ def pgkb_gene_from_symbol(symbol: str) -> dict | None:
 def pgkb_drugs_for_gene(gene_id: str) -> pd.DataFrame:
     """
     Build a per-gene table of drug suggestions from PharmGKB by combining:
-    - relationships (gene↔drug links)
+    - relationships (gene↔chemical links)
     - clinical annotations (captures Level of Evidence and chemical list)
     Returns DataFrame columns: drug_id, drug_name, evidence_level (optional), source
     """
     rows = []
 
-    # A) Relationships: entityId=<gene_id>, filter to Drug objects
+    # A) Relationships: entityId=<gene_id> (partner usually typed as "Chemical")
     rel = pgkb_get("/data/relationships", {"entityId": gene_id, "limit": 1000})
     for item in (rel or {}).get("data", []) or []:
         subj = item.get("subject", {}) or {}
         obj = item.get("object", {}) or {}
+        # Identify the chemical on the opposite side of the gene
         cand = None
-        if (obj.get("type") or "").lower() == "drug":
+        # PharmGKB typically uses "Chemical" here; accept anything containing "chemical" or "drug"
+        if "chemical" in str(obj.get("type") or "").lower() or "drug" in str(obj.get("type") or "").lower():
             cand = obj
-        elif (subj.get("type") or "").lower() == "drug":
+        elif "chemical" in str(subj.get("type") or "").lower() or "drug" in str(subj.get("type") or "").lower():
             cand = subj
         if cand:
             rows.append({
@@ -328,7 +332,7 @@ def pgkb_drugs_for_gene(gene_id: str) -> pd.DataFrame:
     df["drug_id"] = df["drug_id"].astype(str)
     df["drug_name"] = df["drug_name"].astype(str)
 
-    # Prefer entries with evidence_level (clinical annotations) over plain relationships
+    # De-duplicate: prefer entries with evidence_level (clinical annotations) over plain relationships
     df["has_evidence"] = df["evidence_level"].notna()
     df = (
         df.sort_values(["has_evidence", "drug_name"], ascending=[False, True])
@@ -419,8 +423,7 @@ def collect_drug_suggestions_pharmgkb(genes: list[str]) -> pd.DataFrame:
     """
     For each gene symbol:
       1) map to PharmGKB gene id
-      2) fetch related drugs (relationships + clinical annotations)
-    Returns a per-gene table analogous to prior OT version (sans phase fields).
+      2) fetch related drugs/chemicals (relationships + clinical annotations)
     """
     frames = []
     for g in genes:
@@ -468,7 +471,7 @@ manual_input = st.text_area(
     placeholder="e.g. TP53, BRCA1, EGFR, MYC"
 )
 
-# (No Phase-4 checkbox: PharmGKB doesn't provide clinical trial phase)
+# (No Phase-4 checkbox: PharmGKB has no trial phase info)
 genes_from_input: list[str] = []
 if manual_input.strip():
     genes_from_input = (
@@ -603,7 +606,7 @@ if run_btn:
         if df_drugs_pgkb.empty:
             st.info("No PharmGKB drug links found for the provided genes.")
         else:
-            # Aggregate to drug level (no phases; keep evidence levels if present)
+            # Aggregate to drug level (keep evidence levels if present)
             def _agg_unique(series):
                 return "; ".join(sorted({x for x in series if x}))
 
@@ -615,7 +618,6 @@ if run_btn:
                 ).reset_index()
             )
 
-            # Display
             showRx = drug_sum.copy()
             showRx.insert(0, "#", range(1, len(showRx) + 1))
             cols_order = [c for c in [
@@ -659,9 +661,8 @@ if run_btn:
                     genes_set = sorted(set(df_dis[df_dis["disease_name"].isin(top_dis)]["gene"]))
                     dis_list = sorted(top_dis)
 
-                    # Drugs from PharmGKB (frequency)
                     drugs_set = []
-                    if 'df_drugs_pgkb' in locals() and not df_drugs_pgkb.empty:
+                    if 'df_drugs_pgkb' in locals() and isinstance(df_drugs_pgkb, pd.DataFrame) and not df_drugs_pgkb.empty:
                         freq = df_drugs_pgkb.groupby("drug_name")["gene"].nunique().sort_values(ascending=False)
                         drugs_set = freq.head(15).index.tolist()
 
