@@ -245,7 +245,7 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 # ----------------------------
-# PharmGKB (no API key) – NEW for Drug Suggestions
+# PharmGKB (no API key) – Drug Suggestions
 # ----------------------------
 PGKB = "https://api.pharmgkb.org/v1"
 
@@ -271,7 +271,6 @@ def pgkb_gene_from_symbol(symbol: str) -> dict | None:
     res = pgkb_get("/data/search", {"q": symbol, "resource": "genes", "limit": 5})
     hits = (res or {}).get("data", []) or []
     for h in hits:
-        # Typical fields: {'id': 'PAxxxxxx', 'name': 'TP53', 'symbol': 'TP53', ...}
         if str(h.get("symbol") or "").upper() == symbol.upper() or str(h.get("name") or "").upper() == symbol.upper():
             return {"id": h.get("id"), "symbol": h.get("symbol") or h.get("name")}
     # 2) Fallback: try direct gene endpoint filtered by symbol
@@ -297,7 +296,6 @@ def pgkb_drugs_for_gene(gene_id: str) -> pd.DataFrame:
     for item in (rel or {}).get("data", []) or []:
         subj = item.get("subject", {}) or {}
         obj = item.get("object", {}) or {}
-        # Gene could be subject or object; pick the drug on the other side
         cand = None
         if (obj.get("type") or "").lower() == "drug":
             cand = obj
@@ -327,11 +325,10 @@ def pgkb_drugs_for_gene(gene_id: str) -> pd.DataFrame:
         return pd.DataFrame(columns=["drug_id", "drug_name", "evidence_level", "source"])
 
     df = pd.DataFrame(rows)
-    # normalize names/ids
     df["drug_id"] = df["drug_id"].astype(str)
     df["drug_name"] = df["drug_name"].astype(str)
 
-    # De-duplicate: prefer entries with evidence_level (clinical annotations) over plain relationships
+    # Prefer entries with evidence_level (clinical annotations) over plain relationships
     df["has_evidence"] = df["evidence_level"].notna()
     df = (
         df.sort_values(["has_evidence", "drug_name"], ascending=[False, True])
@@ -471,7 +468,7 @@ manual_input = st.text_area(
     placeholder="e.g. TP53, BRCA1, EGFR, MYC"
 )
 
-# (Removed Phase-4 checkbox: PharmGKB doesn't provide clinical trial phase)
+# (No Phase-4 checkbox: PharmGKB doesn't provide clinical trial phase)
 genes_from_input: list[str] = []
 if manual_input.strip():
     genes_from_input = (
@@ -653,7 +650,6 @@ if run_btn:
                 nodes = []
                 node_index = {}
 
-                # Genes and top diseases (same as before)
                 if 'df_dis' in locals() and not df_dis.empty:
                     aggD = (
                         df_dis.groupby("disease_name").agg(n_genes=("gene", lambda s: len(set(s)))).reset_index()
