@@ -245,7 +245,7 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 # ----------------------------
-# PharmGKB (no API key) – Drug Suggestions
+# PharmGKB (no API key) – Drug Suggestions (improved mapping + retrieval)
 # ----------------------------
 PGKB = "https://api.pharmgkb.org/v1"
 
@@ -253,10 +253,11 @@ PGKB = "https://api.pharmgkb.org/v1"
 def pgkb_get(path: str, params: dict | None = None) -> dict:
     """Generic GET to PharmGKB; returns dict with 'data' when available. Retries once on 429."""
     try:
-        r = requests.get(f"{PGKB}{path}", params=params or {}, timeout=40)
+        headers = {"Accept": "application/json"}
+        r = requests.get(f"{PGKB}{path}", params=params or {}, timeout=40, headers=headers)
         if r.status_code == 429:
             time.sleep(1.0)
-            r = requests.get(f"{PGKB}{path}", params=params or {}, timeout=40)
+            r = requests.get(f"{PGKB}{path}", params=params or {}, timeout=40, headers=headers)
         if r.status_code >= 400:
             return {}
         js = r.json()
@@ -265,74 +266,55 @@ def pgkb_get(path: str, params: dict | None = None) -> dict:
         return {}
 
 @st.cache_data(ttl=3600)
-def pgkb_gene_from_symbol(symbol: str) -> dict | None:
+def pgkb_drugs_for_gene(gene_id: str, _probe_only: bool = False) -> pd.DataFrame:
     """
-    Map gene symbol -> PharmGKB gene object.
-    Uses search API scoped to genes and falls back to direct gene query by symbol.
-    """
-    res = pgkb_get("/data/search", {"q": symbol, "resource": "genes", "limit": 5})
-    hits = (res or {}).get("data", []) or []
-    for h in hits:
-        if str(h.get("symbol") or "").upper() == symbol.upper() or str(h.get("name") or "").upper() == symbol.upper():
-            return {"id": h.get("id"), "symbol": h.get("symbol") or h.get("name")}
-    # Fallback: direct gene endpoint
-    res2 = pgkb_get("/data/gene", {"symbol": symbol})
-    data2 = (res2 or {}).get("data", []) or []
-    if data2:
-        g = data2[0]
-        return {"id": g.get("id"), "symbol": g.get("symbol") or g.get("name")}
-    return None
-
-@st.cache_data(ttl=3600)
-def pgkb_drugs_for_gene(gene_id: str) -> pd.DataFrame:
-    """
-    Build a per-gene table of drug suggestions from PharmGKB by combining:
-    - relationships (gene↔chemical links)
-    - clinical annotations (captures Level of Evidence and chemical list)
-    Returns DataFrame columns: drug_id, drug_name, evidence_level (optional), source
+    Gather drug/chemical links for a PharmGKB gene:
+      - relationships (partner type often 'Chemical')
+      - clinical annotations (chemicals + levelOfEvidence)
+    If _probe_only=True, return after first detected hit (used by mapper).
     """
     rows = []
 
-    # A) Relationships: entityId=<gene_id> (partner usually typed as "Chemical")
-    rel = pgkb_get("/data/relationships", {"entityId": gene_id, "limit": 1000})
+    # A) Relationships
+    rel = pgkb_get("/data/relationships", {"entityId": gene_id, "limit": 500})
     for item in (rel or {}).get("data", []) or []:
         subj = item.get("subject", {}) or {}
-        obj = item.get("object", {}) or {}
-        # Identify the chemical on the opposite side of the gene
-        cand = None
-        # PharmGKB typically uses "Chemical" here; accept anything containing "chemical" or "drug"
-        if "chemical" in str(obj.get("type") or "").lower() or "drug" in str(obj.get("type") or "").lower():
-            cand = obj
-        elif "chemical" in str(subj.get("type") or "").lower() or "drug" in str(subj.get("type") or "").lower():
-            cand = subj
-        if cand:
+        obj  = item.get("object",  {}) or {}
+
+        def _is_chem(x):
+            t = str(x.get("type") or "").lower()
+            return "chemical" in t or "drug" in t
+
+        cand = obj if _is_chem(obj) else (subj if _is_chem(subj) else None)
+        if cand and cand.get("id") and cand.get("name"):
             rows.append({
-                "drug_id": cand.get("id"),
-                "drug_name": cand.get("name"),
+                "drug_id":   str(cand.get("id")),
+                "drug_name": str(cand.get("name")),
                 "evidence_level": None,
                 "source": "relationship"
             })
+            if _probe_only:
+                return pd.DataFrame([rows[-1]])
 
-    # B) Clinical Annotations: geneId=<gene_id>, include chemicals with levelOfEvidence
-    ca = pgkb_get("/data/clinicalAnnotations", {"geneId": gene_id, "limit": 1000})
+    # B) Clinical annotations
+    ca = pgkb_get("/data/clinicalAnnotations", {"geneId": gene_id, "limit": 500})
     for ann in (ca or {}).get("data", []) or []:
         lvl = ann.get("levelOfEvidence")
         for chem in ann.get("chemicals", []) or []:
-            rows.append({
-                "drug_id": chem.get("id"),
-                "drug_name": chem.get("name"),
-                "evidence_level": lvl,
-                "source": "clinical_annotation"
-            })
+            if chem.get("id") and chem.get("name"):
+                rows.append({
+                    "drug_id":   str(chem.get("id")),
+                    "drug_name": str(chem.get("name")),
+                    "evidence_level": lvl,
+                    "source": "clinical_annotation"
+                })
+                if _probe_only:
+                    return pd.DataFrame([rows[-1]])
 
     if not rows:
         return pd.DataFrame(columns=["drug_id", "drug_name", "evidence_level", "source"])
 
     df = pd.DataFrame(rows)
-    df["drug_id"] = df["drug_id"].astype(str)
-    df["drug_name"] = df["drug_name"].astype(str)
-
-    # De-duplicate: prefer entries with evidence_level (clinical annotations) over plain relationships
     df["has_evidence"] = df["evidence_level"].notna()
     df = (
         df.sort_values(["has_evidence", "drug_name"], ascending=[False, True])
@@ -341,6 +323,48 @@ def pgkb_drugs_for_gene(gene_id: str) -> pd.DataFrame:
           .reset_index(drop=True)
     )
     return df
+
+@st.cache_data(ttl=3600)
+def pgkb_gene_from_symbol(symbol: str) -> dict | None:
+    """
+    Aggressive mapping: search + direct gene queries by symbol/name.
+    If multiple candidates, pick an exact-symbol match; otherwise the first
+    candidate that actually yields ≥1 drug/chemical link.
+    """
+    cand_list = []
+
+    # 1) Search endpoint – resource=genes
+    res = pgkb_get("/data/search", {"q": symbol, "resource": "genes", "limit": 10})
+    cand_list += (res or {}).get("data", []) or []
+
+    # 2) Direct gene endpoint by symbol
+    res2 = pgkb_get("/data/gene", {"symbol": symbol})
+    cand_list += (res2 or {}).get("data", []) or []
+
+    # 3) Direct gene endpoint by name (sometimes symbol is stored here)
+    res3 = pgkb_get("/data/gene", {"name": symbol})
+    cand_list += (res3 or {}).get("data", []) or []
+
+    # De-dup
+    seen, candidates = set(), []
+    for g in cand_list:
+        gid = g.get("id")
+        if not gid or gid in seen:
+            continue
+        seen.add(gid)
+        candidates.append({"id": gid, "symbol": g.get("symbol") or g.get("name") or symbol})
+
+    # Prefer exact symbol match
+    for g in candidates:
+        if str(g.get("symbol") or "").upper() == symbol.upper():
+            return g
+
+    # Otherwise, pick the first that actually has any links
+    for g in candidates:
+        if not pgkb_drugs_for_gene(g["id"], _probe_only=True).empty:
+            return g
+
+    return None
 
 # ----------------------------
 # Core functions
@@ -602,6 +626,19 @@ if run_btn:
         st.markdown('<div class="section-title">Step 4 — Repurposable Drug Suggestions (PharmGKB)</div>', unsafe_allow_html=True)
         with st.spinner("Fetching PharmGKB gene–drug evidence..."):
             df_drugs_pgkb = collect_drug_suggestions_pharmgkb(genes)
+
+        # Debug panel: see mapping + whether each gene has any PharmGKB links
+        mapped_rows = []
+        for g in genes:
+            ghit = pgkb_gene_from_symbol(g)
+            if ghit:
+                test = pgkb_drugs_for_gene(ghit["id"], _probe_only=True)
+                mapped_rows.append({"gene": g, "pharmgkb_id": ghit["id"], "mapped_symbol": ghit["symbol"], "has_any_link": not test.empty})
+            else:
+                mapped_rows.append({"gene": g, "pharmgkb_id": None, "mapped_symbol": None, "has_any_link": False})
+        df_map_debug = pd.DataFrame(mapped_rows)
+        with st.expander("🔎 PharmGKB mapping debug"):
+            st.dataframe(df_map_debug, use_container_width=True, hide_index=True)
 
         if df_drugs_pgkb.empty:
             st.info("No PharmGKB drug links found for the provided genes.")
