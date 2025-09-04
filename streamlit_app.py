@@ -2,11 +2,12 @@
 # -------------------------------------------------------------
 # BioContext – Gene2Therapy
 # Gene list → KEGG enrichment (counts-only) → Disease links (OpenTargets)
-# → Drug suggestions (PharmGKB)
+# → Drug suggestions (DGIdb + DrugBank vocab CSV)
 # → Visualizations
 # -------------------------------------------------------------
 
 import time
+import re
 import requests
 import pandas as pd
 import streamlit as st
@@ -188,7 +189,7 @@ def kegg_pathway_name(pathway_id: str) -> str | None:
     return None
 
 # ----------------------------
-# OpenTargets (no API key) – still used for disease links
+# OpenTargets (no API key) – disease links
 # ----------------------------
 OT_GQL = "https://api.platform.opentargets.org/api/v4/graphql"
 
@@ -245,126 +246,106 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 # ----------------------------
-# PharmGKB (no API key) – Drug Suggestions (improved mapping + retrieval)
+# DrugBank vocabulary loader & normalizer (CSV you upload)
 # ----------------------------
-PGKB = "https://api.pharmgkb.org/v1"
-
 @st.cache_data(ttl=3600)
-def pgkb_get(path: str, params: dict | None = None) -> dict:
-    """Generic GET to PharmGKB; returns dict with 'data' when available. Retries once on 429."""
+def load_drugbank_vocab(file) -> pd.DataFrame:
     try:
-        headers = {"Accept": "application/json"}
-        r = requests.get(f"{PGKB}{path}", params=params or {}, timeout=40, headers=headers)
-        if r.status_code == 429:
-            time.sleep(1.0)
-            r = requests.get(f"{PGKB}{path}", params=params or {}, timeout=40, headers=headers)
-        if r.status_code >= 400:
-            return {}
-        js = r.json()
-        return js if isinstance(js, dict) else {}
+        df = pd.read_csv(file)
+        df.columns = [c.strip() for c in df.columns]
+        return df
     except Exception:
-        return {}
+        return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
-def pgkb_drugs_for_gene(gene_id: str, _probe_only: bool = False) -> pd.DataFrame:
-    """
-    Gather drug/chemical links for a PharmGKB gene:
-      - relationships (partner type often 'Chemical')
-      - clinical annotations (chemicals + levelOfEvidence)
-    If _probe_only=True, return after first detected hit (used by mapper).
-    """
-    rows = []
+def build_drug_normalizer(vocab_df: pd.DataFrame):
+    alias_to_canon, canon_info = {}, {}
+    if vocab_df.empty:
+        return alias_to_canon, canon_info
+    for _, r in vocab_df.iterrows():
+        drugbank_id = str(r.get("DrugBankID") or "").strip()
+        name = str(r.get("Name") or "").strip()
+        if not drugbank_id or not name:
+            continue
+        canon_key = f"{name} [{drugbank_id}]"
+        canon_info[canon_key] = {
+            "drugbank_id": drugbank_id,
+            "name": name,
+            "atc": r.get("ATC Level 5 Code"),
+            "groups": r.get("Groups"),
+        }
+        aliases = set()
+        for col in ["Name", "Synonyms", "Brand Names"]:
+            val = r.get(col)
+            if pd.isna(val):
+                continue
+            parts = re.split(r";|\||,|\t", str(val))
+            for p in parts:
+                p = p.strip()
+                if p:
+                    aliases.add(p.lower())
+        for a in aliases:
+            alias_to_canon.setdefault(a, canon_key)
+    return alias_to_canon, canon_info
 
-    # A) Relationships
-    rel = pgkb_get("/data/relationships", {"entityId": gene_id, "limit": 500})
-    for item in (rel or {}).get("data", []) or []:
-        subj = item.get("subject", {}) or {}
-        obj  = item.get("object",  {}) or {}
-
-        def _is_chem(x):
-            t = str(x.get("type") or "").lower()
-            return "chemical" in t or "drug" in t
-
-        cand = obj if _is_chem(obj) else (subj if _is_chem(subj) else None)
-        if cand and cand.get("id") and cand.get("name"):
-            rows.append({
-                "drug_id":   str(cand.get("id")),
-                "drug_name": str(cand.get("name")),
-                "evidence_level": None,
-                "source": "relationship"
-            })
-            if _probe_only:
-                return pd.DataFrame([rows[-1]])
-
-    # B) Clinical annotations
-    ca = pgkb_get("/data/clinicalAnnotations", {"geneId": gene_id, "limit": 500})
-    for ann in (ca or {}).get("data", []) or []:
-        lvl = ann.get("levelOfEvidence")
-        for chem in ann.get("chemicals", []) or []:
-            if chem.get("id") and chem.get("name"):
-                rows.append({
-                    "drug_id":   str(chem.get("id")),
-                    "drug_name": str(chem.get("name")),
-                    "evidence_level": lvl,
-                    "source": "clinical_annotation"
-                })
-                if _probe_only:
-                    return pd.DataFrame([rows[-1]])
-
-    if not rows:
-        return pd.DataFrame(columns=["drug_id", "drug_name", "evidence_level", "source"])
-
-    df = pd.DataFrame(rows)
-    df["has_evidence"] = df["evidence_level"].notna()
-    df = (
-        df.sort_values(["has_evidence", "drug_name"], ascending=[False, True])
-          .drop_duplicates(subset=["drug_id", "drug_name"], keep="first")
-          .drop(columns=["has_evidence"])
-          .reset_index(drop=True)
-    )
+def normalize_drug_names(df: pd.DataFrame, name_col: str, alias_to_canon: dict, canon_info: dict) -> pd.DataFrame:
+    if df.empty:
+        return df
+    s = df[name_col].astype(str).str.lower()
+    df = df.copy()
+    df["canon_key"] = s.map(alias_to_canon)
+    df["drugbank_id"] = df["canon_key"].map(lambda k: canon_info.get(k, {}).get("drugbank_id") if k else None)
+    df["canon_name"]  = df["canon_key"].map(lambda k: canon_info.get(k, {}).get("name") if k else None)
+    df["atc_l5"]      = df["canon_key"].map(lambda k: canon_info.get(k, {}).get("atc") if k else None)
+    df["groups"]      = df["canon_key"].map(lambda k: canon_info.get(k, {}).get("groups") if k else None)
     return df
 
+# ----------------------------
+# DGIdb – Gene↔Drug interactions (no API key)
+# ----------------------------
+DGIDB = "https://dgidb.org/api/v2"
+
 @st.cache_data(ttl=3600)
-def pgkb_gene_from_symbol(symbol: str) -> dict | None:
+def dgidb_interactions_for_genes(genes: list[str]) -> pd.DataFrame:
     """
-    Aggressive mapping: search + direct gene queries by symbol/name.
-    If multiple candidates, pick an exact-symbol match; otherwise the first
-    candidate that actually yields ≥1 drug/chemical link.
+    Query DGIdb interactions for a list of gene symbols.
+    Returns columns: gene, drug_name, interaction_types, sources
     """
-    cand_list = []
+    if not genes:
+        return pd.DataFrame(columns=["gene","drug_name","interaction_types","sources"])
 
-    # 1) Search endpoint – resource=genes
-    res = pgkb_get("/data/search", {"q": symbol, "resource": "genes", "limit": 10})
-    cand_list += (res or {}).get("data", []) or []
+    q = ",".join(sorted(set(g for g in genes if g)))
+    try:
+        r = requests.get(f"{DGIDB}/interactions.json", params={"genes": q}, timeout=40)
+        r.raise_for_status()
+        js = r.json()
+    except Exception:
+        return pd.DataFrame(columns=["gene","drug_name","interaction_types","sources"])
 
-    # 2) Direct gene endpoint by symbol
-    res2 = pgkb_get("/data/gene", {"symbol": symbol})
-    cand_list += (res2 or {}).get("data", []) or []
+    rows = []
+    for match in (js or {}).get("matchedTerms", []):
+        gene = match.get("geneName")
+        for itx in match.get("interactions", []) or []:
+            drug_name = itx.get("drugName") or itx.get("drugNameSynonyms") or None
+            if isinstance(drug_name, list):
+                drug_name = drug_name[0] if drug_name else None
+            interaction_types = "; ".join(sorted(set(itx.get("interactionTypes") or [])))
+            sources = "; ".join(sorted({s.get("source") for s in itx.get("sources") or [] if s.get("source")}))
+            if drug_name:
+                rows.append({
+                    "gene": gene,
+                    "drug_name": str(drug_name),
+                    "interaction_types": interaction_types,
+                    "sources": sources
+                })
 
-    # 3) Direct gene endpoint by name (sometimes symbol is stored here)
-    res3 = pgkb_get("/data/gene", {"name": symbol})
-    cand_list += (res3 or {}).get("data", []) or []
-
-    # De-dup
-    seen, candidates = set(), []
-    for g in cand_list:
-        gid = g.get("id")
-        if not gid or gid in seen:
-            continue
-        seen.add(gid)
-        candidates.append({"id": gid, "symbol": g.get("symbol") or g.get("name") or symbol})
-
-    # Prefer exact symbol match
-    for g in candidates:
-        if str(g.get("symbol") or "").upper() == symbol.upper():
-            return g
-
-    # Otherwise, pick the first that actually has any links
-    for g in candidates:
-        if not pgkb_drugs_for_gene(g["id"], _probe_only=True).empty:
-            return g
-
-    return None
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df = (df
+              .groupby(["gene","drug_name"], as_index=False)
+              .agg(interaction_types=("interaction_types", lambda s: "; ".join(sorted({x for x in "; ".join(s).split("; ") if x}))),
+                   sources=("sources", lambda s: "; ".join(sorted({x for x in "; ".join(s).split("; ") if x})))))
+    return df
 
 # ----------------------------
 # Core functions
@@ -414,7 +395,7 @@ def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
     return df
 
 # ----------------------------
-# Cohort-level: mapping, diseases (OT), drugs (PharmGKB)
+# Cohort-level: mapping, diseases (OT)
 # ----------------------------
 @st.cache_data(ttl=3600)
 def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens") -> dict:
@@ -441,30 +422,6 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
     if frames:
         return pd.concat(frames, ignore_index=True)
     return pd.DataFrame(columns=["gene", "target", "disease_id", "disease_name", "association_score"])
-
-@st.cache_data(ttl=3600)
-def collect_drug_suggestions_pharmgkb(genes: list[str]) -> pd.DataFrame:
-    """
-    For each gene symbol:
-      1) map to PharmGKB gene id
-      2) fetch related drugs/chemicals (relationships + clinical annotations)
-    """
-    frames = []
-    for g in genes:
-        try:
-            ghit = pgkb_gene_from_symbol(g)
-            if not ghit or not ghit.get("id"):
-                continue
-            df = pgkb_drugs_for_gene(ghit["id"])
-            if not df.empty:
-                df.insert(0, "gene", g)
-                frames.append(df)
-            time.sleep(0.05)
-        except Exception:
-            continue
-    if frames:
-        return pd.concat(frames, ignore_index=True)
-    return pd.DataFrame(columns=["gene", "drug_id", "drug_name", "evidence_level", "source"])
 
 # ----------------------------
 # UI – Inputs
@@ -495,7 +452,14 @@ manual_input = st.text_area(
     placeholder="e.g. TP53, BRCA1, EGFR, MYC"
 )
 
-# (No Phase-4 checkbox: PharmGKB has no trial phase info)
+# Optional: DrugBank vocabulary CSV for normalization/filters
+st.markdown("#### Optional: DrugBank vocabulary CSV (for name/ID normalization)")
+drugbank_csv = st.file_uploader(
+    "Upload DrugBank vocabulary CSV",
+    type=["csv"],
+    key="db_vocab"
+)
+
 genes_from_input: list[str] = []
 if manual_input.strip():
     genes_from_input = (
@@ -621,59 +585,61 @@ if run_btn:
             except Exception:
                 pass
 
-    # -------- Step 4: Drug Suggestions (PharmGKB) --------
+    # -------- Step 4: Drug Suggestions (DGIdb + DrugBank vocab) --------
     with drug_tab:
-        st.markdown('<div class="section-title">Step 4 — Repurposable Drug Suggestions (PharmGKB)</div>', unsafe_allow_html=True)
-        with st.spinner("Fetching PharmGKB gene–drug evidence..."):
-            df_drugs_pgkb = collect_drug_suggestions_pharmgkb(genes)
+        st.markdown('<div class="section-title">Step 4 — Repurposable Drug Suggestions (DGIdb + DrugBank vocab)</div>', unsafe_allow_html=True)
 
-        # Debug panel: see mapping + whether each gene has any PharmGKB links
-        mapped_rows = []
-        for g in genes:
-            ghit = pgkb_gene_from_symbol(g)
-            if ghit:
-                test = pgkb_drugs_for_gene(ghit["id"], _probe_only=True)
-                mapped_rows.append({"gene": g, "pharmgkb_id": ghit["id"], "mapped_symbol": ghit["symbol"], "has_any_link": not test.empty})
+        # Load DrugBank vocab if provided
+        vocab_df = pd.DataFrame()
+        alias_to_canon, canon_info = {}, {}
+        if drugbank_csv is not None:
+            vocab_df = load_drugbank_vocab(drugbank_csv)
+            alias_to_canon, canon_info = build_drug_normalizer(vocab_df)
+            if vocab_df.empty:
+                st.warning("Could not read DrugBank vocabulary CSV. Proceeding without normalization.")
             else:
-                mapped_rows.append({"gene": g, "pharmgkb_id": None, "mapped_symbol": None, "has_any_link": False})
-        df_map_debug = pd.DataFrame(mapped_rows)
-        with st.expander("🔎 PharmGKB mapping debug"):
-            st.dataframe(df_map_debug, use_container_width=True, hide_index=True)
+                st.success(f"Loaded DrugBank vocab with {len(vocab_df):,} rows for normalization.")
 
-        if df_drugs_pgkb.empty:
-            st.info("No PharmGKB drug links found for the provided genes.")
+        with st.spinner("Fetching DGIdb gene–drug interactions..."):
+            df_dgidb = dgidb_interactions_for_genes(genes)
+
+        if df_dgidb.empty:
+            st.info("No DGIdb interactions found for the provided genes.")
         else:
-            # Aggregate to drug level (keep evidence levels if present)
+            # Normalize drug names (if vocab present)
+            df_norm = normalize_drug_names(df_dgidb, "drug_name", alias_to_canon, canon_info) if alias_to_canon else df_dgidb.copy()
+
             def _agg_unique(series):
                 return "; ".join(sorted({x for x in series if x}))
 
             drug_sum = (
-                df_drugs_pgkb.groupby(["drug_id", "drug_name"]).agg(
-                    genes=("gene", lambda s: ";".join(sorted(set(s)))),
-                    evidence_levels=("evidence_level", _agg_unique),
-                    sources=("source", _agg_unique)
-                ).reset_index()
+                df_norm.groupby(["drug_name","canon_name","drugbank_id","atc_l5","groups"], dropna=False)
+                       .agg(genes=("gene", lambda s: ";".join(sorted(set(s)))),
+                            interaction_types=("interaction_types", _agg_unique),
+                            sources=("sources", _agg_unique))
+                       .reset_index()
             )
+
+            only_approved = st.checkbox("Show only drugs marked 'approved' in DrugBank CSV", value=False,
+                                        help="Uses the 'Groups' column in your DrugBank vocabulary file.")
+            if only_approved and "groups" in drug_sum.columns:
+                drug_sum = drug_sum[drug_sum["groups"].astype(str).str.contains("approved", case=False, na=False)]
 
             showRx = drug_sum.copy()
             showRx.insert(0, "#", range(1, len(showRx) + 1))
-            cols_order = [c for c in [
-                "#", "drug_id", "drug_name", "genes", "evidence_levels", "sources"
-            ] if c in showRx.columns]
-            other_cols = [c for c in showRx.columns if c not in cols_order]
-            st.dataframe(showRx[cols_order + other_cols], use_container_width=True, hide_index=True)
+            cols = [c for c in ["#", "drugbank_id", "canon_name", "drug_name", "genes", "interaction_types", "sources", "atc_l5", "groups"] if c in showRx.columns]
+            st.dataframe(showRx[cols], use_container_width=True, hide_index=True)
 
-            # Raw downloads
             st.download_button(
-                "⬇️ Download PharmGKB drug links (per gene)",
-                data=df_drugs_pgkb.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_per_gene_pharmgkb.csv",
+                "⬇️ Download DGIdb interactions (per gene)",
+                data=df_norm.to_csv(index=False).encode("utf-8"),
+                file_name="drug_suggestions_per_gene_dgidb.csv",
                 mime="text/csv"
             )
             st.download_button(
-                "⬇️ Download PharmGKB drug summary (aggregated)",
+                "⬇️ Download drug summary (normalized with DrugBank)",
                 data=drug_sum.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_aggregated_pharmgkb.csv",
+                file_name="drug_suggestions_aggregated_dgidb_drugbank.csv",
                 mime="text/csv"
             )
 
@@ -682,7 +648,7 @@ if run_btn:
         st.markdown('<div class="section-title">Step 5 — Visualize the landscape</div>', unsafe_allow_html=True)
         colA, colB = st.columns(2)
 
-        # Sankey: Genes → Diseases (top 10) → Drugs (top 15 by mention)
+        # Sankey: Genes → Diseases (top 10) → Drugs (top 15 by gene count)
         with colA:
             try:
                 links = []
@@ -699,8 +665,8 @@ if run_btn:
                     dis_list = sorted(top_dis)
 
                     drugs_set = []
-                    if 'df_drugs_pgkb' in locals() and isinstance(df_drugs_pgkb, pd.DataFrame) and not df_drugs_pgkb.empty:
-                        freq = df_drugs_pgkb.groupby("drug_name")["gene"].nunique().sort_values(ascending=False)
+                    if 'df_dgidb' in locals() and isinstance(df_dgidb, pd.DataFrame) and not df_dgidb.empty:
+                        freq = df_dgidb.groupby("drug_name")["gene"].nunique().sort_values(ascending=False)
                         drugs_set = freq.head(15).index.tolist()
 
                     nodes = [f"G: {g}" for g in genes_set] + [f"D: {d}" for d in dis_list] + [f"Rx: {d}" for d in drugs_set]
@@ -711,8 +677,8 @@ if run_btn:
                         for g, cnt in Counter(sub["gene"]).items():
                             links.append((node_index[f"G: {g}"], node_index[f"D: {d}"], max(cnt, 1)))
 
-                    if drugs_set and 'df_drugs_pgkb' in locals() and not df_drugs_pgkb.empty:
-                        tmp = df_drugs_pgkb[df_drugs_pgkb['drug_name'].isin(drugs_set) & df_drugs_pgkb['gene'].isin(genes_set)]
+                    if drugs_set and 'df_dgidb' in locals() and not df_dgidb.empty:
+                        tmp = df_dgidb[df_dgidb['drug_name'].isin(drugs_set) & df_dgidb['gene'].isin(genes_set)]
                         for _, row in tmp.iterrows():
                             s = node_index[f"G: {row['gene']}"]
                             t = node_index.get(f"Rx: {row['drug_name']}")
@@ -727,7 +693,7 @@ if run_btn:
                             node=dict(pad=12, thickness=14, label=nodes),
                             link=dict(source=sources, target=targets, value=values),
                         )])
-                        fig_sankey.update_layout(title_text="Gene → Disease (→ Drug, PharmGKB) connections", height=700)
+                        fig_sankey.update_layout(title_text="Gene → Disease (→ Drug, DGIdb) connections", height=700)
                         st.plotly_chart(fig_sankey, use_container_width=True)
             except Exception as e:
                 st.warning(f"Sankey could not be drawn: {e}")
@@ -766,4 +732,4 @@ if run_btn:
                 st.warning(f"Network could not be drawn: {e}")
 
 st.markdown("---")
-st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL (disease links), PharmGKB (drug links). Data is fetched live and cached for 1h. Validate findings with primary sources.")
+st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL (disease links), DGIdb (gene–drug). Optional DrugBank CSV for normalization/filters. Data is fetched live and cached for 1h. Validate findings with primary sources.")
