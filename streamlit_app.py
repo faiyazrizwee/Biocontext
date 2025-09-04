@@ -2,7 +2,7 @@
 # -------------------------------------------------------------
 # BioContext – Gene2Therapy
 # Gene list → KEGG enrichment (counts-only) → Disease links (OpenTargets)
-# → Drug suggestions (DrugCentral)
+# → Drug suggestions (DrugCentral; symbol + UniProt aware)
 # → Visualizations
 # -------------------------------------------------------------
 
@@ -259,62 +259,77 @@ def drugcentral_get(path: str, params: dict | None = None) -> dict | list:
         r = requests.get(f"{DRUGCENTRAL}{path}", params=params or {}, timeout=40)
         if r.status_code >= 400:
             return {}
-        js = r.json()
+        return r.json()
+    except Exception:
+        return {}
+
+def _dc_extract(js):
+    if isinstance(js, list):
         return js
+    if isinstance(js, dict) and js.get("results"):
+        return js["results"]
+    return []
+
+# --- NEW: map gene symbols → UniProt accessions (Swiss-Prot) ---
+@st.cache_data(ttl=3600)
+def map_genes_to_uniprot(genes: list[str]) -> dict:
+    """
+    Return dict: SYMBOL -> set({uniprot accessions}).
+    Uses MyGene.info; tolerant to missing entries.
+    """
+    if not genes:
+        return {}
+    q = " OR ".join([f"symbol:{g}" for g in sorted(set(genes))])
+    try:
+        r = requests.get(
+            "https://mygene.info/v3/query",
+            params={"q": q, "species": "human", "fields": "uniprot.Swiss-Prot,symbol", "size": 1000},
+            timeout=30,
+        )
+        r.raise_for_status()
+        out = {}
+        for hit in r.json().get("hits", []):
+            sym = str(hit.get("symbol") or "").upper()
+            up = hit.get("uniprot", {}).get("Swiss-Prot")
+            accs = set()
+            if isinstance(up, list):
+                accs.update([a for a in up if a])
+            elif isinstance(up, str) and up:
+                accs.add(up)
+            if sym and accs:
+                out.setdefault(sym, set()).update(accs)
+        return out
     except Exception:
         return {}
 
 @st.cache_data(ttl=3600)
-def dc_probe_gene(symbol: str) -> list[dict]:
+def dc_probe_gene(symbol: str, uniprots: set[str] | None = None) -> list[dict]:
     """
-    Try a few DrugCentral endpoints/params to find bioactivity entries connected to a gene symbol.
-    We merge results and dedupe.
+    Probe multiple DrugCentral routes:
+      - /bioactivity?gene=<symbol>
+      - /bioactivity?target=<symbol>
+      - /bioactivity?uniprot=<acc>  (for each mapped UniProt)
+      - /search?q=<symbol>          (broad fallback)
+    Deduplicate by (drug name, target id/accession).
     """
     out = []
 
-    # 1) Bioactivity by gene symbol (common pattern)
-    js = drugcentral_get("/bioactivity", {"gene": symbol})
-    if isinstance(js, list):
-        out.extend(js)
-    elif isinstance(js, dict) and js.get("results"):
-        out.extend(js["results"])
+    # 1) symbol-based
+    out += _dc_extract(drugcentral_get("/bioactivity", {"gene": symbol}))
+    out += _dc_extract(drugcentral_get("/bioactivity", {"target": symbol}))
 
-    # 2) Bioactivity by target search (some APIs use 'target' / 'target_name')
-    js = drugcentral_get("/bioactivity", {"target": symbol})
-    if isinstance(js, list):
-        out.extend(js)
-    elif isinstance(js, dict) and js.get("results"):
-        out.extend(js["results"])
+    # 2) uniprot-based
+    for acc in (uniprots or []):
+        out += _dc_extract(drugcentral_get("/bioactivity", {"uniprot": acc}))
 
-    # 3) Generic search as fallback (free-text)
-    js = drugcentral_get("/search", {"q": symbol})
-    if isinstance(js, list):
-        for item in js:
-            if isinstance(item, dict) and (
-                "drug" in item or "drugname" in item or "pref_name" in item or
-                "target" in item or "uniprot" in item or "accession" in item or
-                "act_value" in item or "act_type" in item
-            ):
-                out.append(item)
-    elif isinstance(js, dict) and js.get("results"):
-        for item in js["results"]:
-            if isinstance(item, dict) and (
-                "drug" in item or "drugname" in item or "pref_name" in item or
-                "target" in item or "uniprot" in item or "accession" in item or
-                "act_value" in item or "act_type" in item
-            ):
-                out.append(item)
+    # 3) broad fallback
+    out += _dc_extract(drugcentral_get("/search", {"q": symbol}))
 
-    # De-dup by (drug name + maybe target id)
-    seen = set()
-    deduped = []
+    # de-duplicate
+    seen, deduped = set(), []
     for rec in out:
-        drug = str(
-            rec.get("drugname") or rec.get("drug") or rec.get("name") or rec.get("pref_name") or ""
-        ).strip()
-        tgt  = str(
-            rec.get("target") or rec.get("target_name") or rec.get("uniprot") or rec.get("accession") or ""
-        ).strip()
+        drug = str(rec.get("drugname") or rec.get("drug") or rec.get("name") or rec.get("pref_name") or "").strip()
+        tgt  = str(rec.get("target") or rec.get("target_name") or rec.get("uniprot") or rec.get("accession") or "").strip()
         key = (drug.lower(), tgt.lower())
         if drug and key not in seen:
             seen.add(key)
@@ -322,12 +337,12 @@ def dc_probe_gene(symbol: str) -> list[dict]:
     return deduped
 
 @st.cache_data(ttl=3600)
-def drugcentral_drugs_for_gene(symbol: str) -> pd.DataFrame:
+def drugcentral_drugs_for_gene(symbol: str, uniprots: set[str] | None = None) -> pd.DataFrame:
     """
     Normalize DrugCentral records for a single gene symbol into:
     columns: gene, drug_name, action, activity, target, source
     """
-    recs = dc_probe_gene(symbol)
+    recs = dc_probe_gene(symbol, uniprots)
     if not recs:
         return pd.DataFrame(columns=["gene","drug_name","action","activity","target","source"])
 
@@ -337,7 +352,6 @@ def drugcentral_drugs_for_gene(symbol: str) -> pd.DataFrame:
         if not drug:
             continue
         action = (r.get("action_type") or r.get("MOA") or r.get("act_type") or r.get("relationship") or "").strip()
-        # activity could be act_value + act_unit or pchembl / potency-like fields
         act_val = str(r.get("act_value") or r.get("activity_value") or r.get("potency") or r.get("pchembl_value") or "").strip()
         act_unit = str(r.get("act_unit") or r.get("activity_units") or "").strip()
         activity = (f"{act_val} {act_unit}".strip()) if (act_val or act_unit) else ""
@@ -350,27 +364,27 @@ def drugcentral_drugs_for_gene(symbol: str) -> pd.DataFrame:
             "target": target,
             "source": "DrugCentral"
         })
-    if not rows:
-        return pd.DataFrame(columns=["gene","drug_name","action","activity","target","source"])
-
     df = pd.DataFrame(rows)
-    # collapse duplicates (same gene+drug)
-    df = (df.groupby(["gene","drug_name"], as_index=False)
-            .agg(action=("action", lambda s: "; ".join(sorted({x for x in s if x}))),
-                 activity=("activity", lambda s: "; ".join(sorted({x for x in s if x}))),
-                 target=("target", lambda s: "; ".join(sorted({x for x in s if x}))),
-                 source=("source", "first")))
-    return df
+    if df.empty:
+        return df
+    return (df.groupby(["gene","drug_name"], as_index=False)
+              .agg(action=("action", lambda s: "; ".join(sorted({x for x in s if x}))),
+                   activity=("activity", lambda s: "; ".join(sorted({x for x in s if x}))),
+                   target=("target", lambda s: "; ".join(sorted({x for x in s if x}))),
+                   source=("source", "first")))
 
 @st.cache_data(ttl=3600)
 def collect_drug_suggestions_drugcentral(genes: list[str]) -> pd.DataFrame:
     """
     For each gene symbol, fetch DrugCentral suggestions and concatenate.
+    Uses UniProt mapping to improve recall.
     """
+    uni = map_genes_to_uniprot(genes)
     frames = []
     for g in genes:
         try:
-            df = drugcentral_drugs_for_gene(g)
+            accs = uni.get(g.upper(), set())
+            df = drugcentral_drugs_for_gene(g, accs)
             if not df.empty:
                 frames.append(df)
             time.sleep(0.05)
@@ -617,19 +631,24 @@ if run_btn:
         with st.spinner("Querying DrugCentral for gene–drug evidence..."):
             df_dc = collect_drug_suggestions_drugcentral(genes)
 
-        # Debug expander (optional): show a few raw rows per gene
-        with st.expander("🔎 DrugCentral probe (first few hits per gene)"):
+        # Debug expander: UniProt mapping + a few raw hits
+        with st.expander("🔎 DrugCentral probe (UniProt mapping + first few hits per gene)"):
+            mp = map_genes_to_uniprot(genes)
+            if mp:
+                st.write("UniProt mapping (symbol → accessions):", {k: sorted(list(v)) for k, v in mp.items()})
             preview = []
-            for g in genes[:10]:  # keep it small
-                recs = dc_probe_gene(g)
+            for g in genes[:10]:
+                accs = mp.get(g.upper(), set())
+                recs = dc_probe_gene(g, accs)
                 for r in recs[:5]:
-                    # keep only a few keys per row to avoid huge tables
-                    preview.append({"gene": g,
-                                    "drug": r.get("drugname") or r.get("drug") or r.get("name") or r.get("pref_name"),
-                                    "target": r.get("target") or r.get("target_name") or r.get("uniprot") or r.get("accession"),
-                                    "action": r.get("action_type") or r.get("MOA") or r.get("act_type"),
-                                    "act_value": r.get("act_value"),
-                                    "act_unit": r.get("act_unit")})
+                    preview.append({
+                        "gene": g,
+                        "drug": r.get("drugname") or r.get("drug") or r.get("name") or r.get("pref_name"),
+                        "target": r.get("target") or r.get("target_name") or r.get("uniprot") or r.get("accession"),
+                        "action": r.get("action_type") or r.get("MOA") or r.get("act_type"),
+                        "act_value": r.get("act_value"),
+                        "act_unit": r.get("act_unit")
+                    })
             if preview:
                 st.dataframe(pd.DataFrame(preview), use_container_width=True, hide_index=True)
             else:
@@ -759,4 +778,4 @@ if run_btn:
                 st.warning(f"Network could not be drawn: {e}")
 
 st.markdown("---")
-st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL (disease links), DrugCentral (gene–drug). Data is fetched live and cached for 1h. Validate findings with primary sources.")
+st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL (disease links), DrugCentral (gene–drug; UniProt-aware). Data is fetched live and cached for 1h. Validate findings with primary sources.")
