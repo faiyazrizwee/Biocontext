@@ -2,12 +2,11 @@
 # -------------------------------------------------------------
 # BioContext – Gene2Therapy
 # Gene list → KEGG enrichment (counts-only) → Disease links (OpenTargets)
-# → Drug suggestions (DGIdb + DrugBank vocab CSV)
+# → Drug suggestions (DrugCentral)
 # → Visualizations
 # -------------------------------------------------------------
 
 import time
-import re
 import requests
 import pandas as pd
 import streamlit as st
@@ -246,106 +245,140 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 # ----------------------------
-# DrugBank vocabulary loader & normalizer (CSV you upload)
+# DrugCentral (no API key) – Gene→Drug suggestions
 # ----------------------------
-@st.cache_data(ttl=3600)
-def load_drugbank_vocab(file) -> pd.DataFrame:
-    try:
-        df = pd.read_csv(file)
-        df.columns = [c.strip() for c in df.columns]
-        return df
-    except Exception:
-        return pd.DataFrame()
+DRUGCENTRAL = "https://drugcentral.org/api"
 
 @st.cache_data(ttl=3600)
-def build_drug_normalizer(vocab_df: pd.DataFrame):
-    alias_to_canon, canon_info = {}, {}
-    if vocab_df.empty:
-        return alias_to_canon, canon_info
-    for _, r in vocab_df.iterrows():
-        drugbank_id = str(r.get("DrugBankID") or "").strip()
-        name = str(r.get("Name") or "").strip()
-        if not drugbank_id or not name:
-            continue
-        canon_key = f"{name} [{drugbank_id}]"
-        canon_info[canon_key] = {
-            "drugbank_id": drugbank_id,
-            "name": name,
-            "atc": r.get("ATC Level 5 Code"),
-            "groups": r.get("Groups"),
-        }
-        aliases = set()
-        for col in ["Name", "Synonyms", "Brand Names"]:
-            val = r.get(col)
-            if pd.isna(val):
-                continue
-            parts = re.split(r";|\||,|\t", str(val))
-            for p in parts:
-                p = p.strip()
-                if p:
-                    aliases.add(p.lower())
-        for a in aliases:
-            alias_to_canon.setdefault(a, canon_key)
-    return alias_to_canon, canon_info
-
-def normalize_drug_names(df: pd.DataFrame, name_col: str, alias_to_canon: dict, canon_info: dict) -> pd.DataFrame:
-    if df.empty:
-        return df
-    s = df[name_col].astype(str).str.lower()
-    df = df.copy()
-    df["canon_key"] = s.map(alias_to_canon)
-    df["drugbank_id"] = df["canon_key"].map(lambda k: canon_info.get(k, {}).get("drugbank_id") if k else None)
-    df["canon_name"]  = df["canon_key"].map(lambda k: canon_info.get(k, {}).get("name") if k else None)
-    df["atc_l5"]      = df["canon_key"].map(lambda k: canon_info.get(k, {}).get("atc") if k else None)
-    df["groups"]      = df["canon_key"].map(lambda k: canon_info.get(k, {}).get("groups") if k else None)
-    return df
-
-# ----------------------------
-# DGIdb – Gene↔Drug interactions (no API key)
-# ----------------------------
-DGIDB = "https://dgidb.org/api/v2"
-
-@st.cache_data(ttl=3600)
-def dgidb_interactions_for_genes(genes: list[str]) -> pd.DataFrame:
+def drugcentral_get(path: str, params: dict | None = None) -> dict | list:
     """
-    Query DGIdb interactions for a list of gene symbols.
-    Returns columns: gene, drug_name, interaction_types, sources
+    Generic GET to DrugCentral API.
+    Returns dict or list (DrugCentral returns both, depending on endpoint).
     """
-    if not genes:
-        return pd.DataFrame(columns=["gene","drug_name","interaction_types","sources"])
-
-    q = ",".join(sorted(set(g for g in genes if g)))
     try:
-        r = requests.get(f"{DGIDB}/interactions.json", params={"genes": q}, timeout=40)
-        r.raise_for_status()
+        r = requests.get(f"{DRUGCENTRAL}{path}", params=params or {}, timeout=40)
+        if r.status_code >= 400:
+            return {}
         js = r.json()
+        return js
     except Exception:
-        return pd.DataFrame(columns=["gene","drug_name","interaction_types","sources"])
+        return {}
+
+@st.cache_data(ttl=3600)
+def dc_probe_gene(symbol: str) -> list[dict]:
+    """
+    Try a few DrugCentral endpoints/params to find bioactivity entries connected to a gene symbol.
+    We merge results and dedupe.
+    """
+    out = []
+
+    # 1) Bioactivity by gene symbol (common pattern)
+    js = drugcentral_get("/bioactivity", {"gene": symbol})
+    if isinstance(js, list):
+        out.extend(js)
+    elif isinstance(js, dict) and js.get("results"):
+        out.extend(js["results"])
+
+    # 2) Bioactivity by target search (some APIs use 'target' / 'target_name')
+    js = drugcentral_get("/bioactivity", {"target": symbol})
+    if isinstance(js, list):
+        out.extend(js)
+    elif isinstance(js, dict) and js.get("results"):
+        out.extend(js["results"])
+
+    # 3) Generic search as fallback (free-text)
+    js = drugcentral_get("/search", {"q": symbol})
+    if isinstance(js, list):
+        for item in js:
+            if isinstance(item, dict) and (
+                "drug" in item or "drugname" in item or "pref_name" in item or
+                "target" in item or "uniprot" in item or "accession" in item or
+                "act_value" in item or "act_type" in item
+            ):
+                out.append(item)
+    elif isinstance(js, dict) and js.get("results"):
+        for item in js["results"]:
+            if isinstance(item, dict) and (
+                "drug" in item or "drugname" in item or "pref_name" in item or
+                "target" in item or "uniprot" in item or "accession" in item or
+                "act_value" in item or "act_type" in item
+            ):
+                out.append(item)
+
+    # De-dup by (drug name + maybe target id)
+    seen = set()
+    deduped = []
+    for rec in out:
+        drug = str(
+            rec.get("drugname") or rec.get("drug") or rec.get("name") or rec.get("pref_name") or ""
+        ).strip()
+        tgt  = str(
+            rec.get("target") or rec.get("target_name") or rec.get("uniprot") or rec.get("accession") or ""
+        ).strip()
+        key = (drug.lower(), tgt.lower())
+        if drug and key not in seen:
+            seen.add(key)
+            deduped.append(rec)
+    return deduped
+
+@st.cache_data(ttl=3600)
+def drugcentral_drugs_for_gene(symbol: str) -> pd.DataFrame:
+    """
+    Normalize DrugCentral records for a single gene symbol into:
+    columns: gene, drug_name, action, activity, target, source
+    """
+    recs = dc_probe_gene(symbol)
+    if not recs:
+        return pd.DataFrame(columns=["gene","drug_name","action","activity","target","source"])
 
     rows = []
-    for match in (js or {}).get("matchedTerms", []):
-        gene = match.get("geneName")
-        for itx in match.get("interactions", []) or []:
-            drug_name = itx.get("drugName") or itx.get("drugNameSynonyms") or None
-            if isinstance(drug_name, list):
-                drug_name = drug_name[0] if drug_name else None
-            interaction_types = "; ".join(sorted(set(itx.get("interactionTypes") or [])))
-            sources = "; ".join(sorted({s.get("source") for s in itx.get("sources") or [] if s.get("source")}))
-            if drug_name:
-                rows.append({
-                    "gene": gene,
-                    "drug_name": str(drug_name),
-                    "interaction_types": interaction_types,
-                    "sources": sources
-                })
+    for r in recs:
+        drug = (r.get("drugname") or r.get("drug") or r.get("name") or r.get("pref_name") or "").strip()
+        if not drug:
+            continue
+        action = (r.get("action_type") or r.get("MOA") or r.get("act_type") or r.get("relationship") or "").strip()
+        # activity could be act_value + act_unit or pchembl / potency-like fields
+        act_val = str(r.get("act_value") or r.get("activity_value") or r.get("potency") or r.get("pchembl_value") or "").strip()
+        act_unit = str(r.get("act_unit") or r.get("activity_units") or "").strip()
+        activity = (f"{act_val} {act_unit}".strip()) if (act_val or act_unit) else ""
+        target = (r.get("target") or r.get("target_name") or r.get("uniprot") or r.get("accession") or "").strip()
+        rows.append({
+            "gene": symbol,
+            "drug_name": drug,
+            "action": action,
+            "activity": activity,
+            "target": target,
+            "source": "DrugCentral"
+        })
+    if not rows:
+        return pd.DataFrame(columns=["gene","drug_name","action","activity","target","source"])
 
     df = pd.DataFrame(rows)
-    if not df.empty:
-        df = (df
-              .groupby(["gene","drug_name"], as_index=False)
-              .agg(interaction_types=("interaction_types", lambda s: "; ".join(sorted({x for x in "; ".join(s).split("; ") if x}))),
-                   sources=("sources", lambda s: "; ".join(sorted({x for x in "; ".join(s).split("; ") if x})))))
+    # collapse duplicates (same gene+drug)
+    df = (df.groupby(["gene","drug_name"], as_index=False)
+            .agg(action=("action", lambda s: "; ".join(sorted({x for x in s if x}))),
+                 activity=("activity", lambda s: "; ".join(sorted({x for x in s if x}))),
+                 target=("target", lambda s: "; ".join(sorted({x for x in s if x}))),
+                 source=("source", "first")))
     return df
+
+@st.cache_data(ttl=3600)
+def collect_drug_suggestions_drugcentral(genes: list[str]) -> pd.DataFrame:
+    """
+    For each gene symbol, fetch DrugCentral suggestions and concatenate.
+    """
+    frames = []
+    for g in genes:
+        try:
+            df = drugcentral_drugs_for_gene(g)
+            if not df.empty:
+                frames.append(df)
+            time.sleep(0.05)
+        except Exception:
+            continue
+    if frames:
+        return pd.concat(frames, ignore_index=True)
+    return pd.DataFrame(columns=["gene","drug_name","action","activity","target","source"])
 
 # ----------------------------
 # Core functions
@@ -450,14 +483,6 @@ uploaded = st.file_uploader(
 manual_input = st.text_area(
     "Or paste gene symbols here (comma, space, or newline separated):",
     placeholder="e.g. TP53, BRCA1, EGFR, MYC"
-)
-
-# Optional: DrugBank vocabulary CSV for normalization/filters
-st.markdown("#### Optional: DrugBank vocabulary CSV (for name/ID normalization)")
-drugbank_csv = st.file_uploader(
-    "Upload DrugBank vocabulary CSV",
-    type=["csv"],
-    key="db_vocab"
 )
 
 genes_from_input: list[str] = []
@@ -585,61 +610,63 @@ if run_btn:
             except Exception:
                 pass
 
-    # -------- Step 4: Drug Suggestions (DGIdb + DrugBank vocab) --------
+    # -------- Step 4: Drug Suggestions (DrugCentral) --------
     with drug_tab:
-        st.markdown('<div class="section-title">Step 4 — Repurposable Drug Suggestions (DGIdb + DrugBank vocab)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Step 4 — Repurposable Drug Suggestions (DrugCentral)</div>', unsafe_allow_html=True)
 
-        # Load DrugBank vocab if provided
-        vocab_df = pd.DataFrame()
-        alias_to_canon, canon_info = {}, {}
-        if drugbank_csv is not None:
-            vocab_df = load_drugbank_vocab(drugbank_csv)
-            alias_to_canon, canon_info = build_drug_normalizer(vocab_df)
-            if vocab_df.empty:
-                st.warning("Could not read DrugBank vocabulary CSV. Proceeding without normalization.")
+        with st.spinner("Querying DrugCentral for gene–drug evidence..."):
+            df_dc = collect_drug_suggestions_drugcentral(genes)
+
+        # Debug expander (optional): show a few raw rows per gene
+        with st.expander("🔎 DrugCentral probe (first few hits per gene)"):
+            preview = []
+            for g in genes[:10]:  # keep it small
+                recs = dc_probe_gene(g)
+                for r in recs[:5]:
+                    # keep only a few keys per row to avoid huge tables
+                    preview.append({"gene": g,
+                                    "drug": r.get("drugname") or r.get("drug") or r.get("name") or r.get("pref_name"),
+                                    "target": r.get("target") or r.get("target_name") or r.get("uniprot") or r.get("accession"),
+                                    "action": r.get("action_type") or r.get("MOA") or r.get("act_type"),
+                                    "act_value": r.get("act_value"),
+                                    "act_unit": r.get("act_unit")})
+            if preview:
+                st.dataframe(pd.DataFrame(preview), use_container_width=True, hide_index=True)
             else:
-                st.success(f"Loaded DrugBank vocab with {len(vocab_df):,} rows for normalization.")
+                st.caption("No raw hits shown (either no matches or limited by preview).")
 
-        with st.spinner("Fetching DGIdb gene–drug interactions..."):
-            df_dgidb = dgidb_interactions_for_genes(genes)
-
-        if df_dgidb.empty:
-            st.info("No DGIdb interactions found for the provided genes.")
+        if df_dc.empty:
+            st.info("No DrugCentral gene–drug links found for the provided genes.")
         else:
-            # Normalize drug names (if vocab present)
-            df_norm = normalize_drug_names(df_dgidb, "drug_name", alias_to_canon, canon_info) if alias_to_canon else df_dgidb.copy()
-
+            # Aggregate by drug for compact view
             def _agg_unique(series):
                 return "; ".join(sorted({x for x in series if x}))
 
             drug_sum = (
-                df_norm.groupby(["drug_name","canon_name","drugbank_id","atc_l5","groups"], dropna=False)
-                       .agg(genes=("gene", lambda s: ";".join(sorted(set(s)))),
-                            interaction_types=("interaction_types", _agg_unique),
-                            sources=("sources", _agg_unique))
-                       .reset_index()
+                df_dc.groupby(["drug_name"], as_index=False)
+                     .agg(genes=("gene", lambda s: ";".join(sorted(set(s)))),
+                          actions=("action", _agg_unique),
+                          targets=("target", _agg_unique),
+                          activity=("activity", _agg_unique),
+                          sources=("source", _agg_unique))
+                     .sort_values("drug_name")
             )
-
-            only_approved = st.checkbox("Show only drugs marked 'approved' in DrugBank CSV", value=False,
-                                        help="Uses the 'Groups' column in your DrugBank vocabulary file.")
-            if only_approved and "groups" in drug_sum.columns:
-                drug_sum = drug_sum[drug_sum["groups"].astype(str).str.contains("approved", case=False, na=False)]
 
             showRx = drug_sum.copy()
             showRx.insert(0, "#", range(1, len(showRx) + 1))
-            cols = [c for c in ["#", "drugbank_id", "canon_name", "drug_name", "genes", "interaction_types", "sources", "atc_l5", "groups"] if c in showRx.columns]
+            cols = [c for c in ["#", "drug_name", "genes", "actions", "targets", "activity", "sources"] if c in showRx.columns]
             st.dataframe(showRx[cols], use_container_width=True, hide_index=True)
 
             st.download_button(
-                "⬇️ Download DGIdb interactions (per gene)",
-                data=df_norm.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_per_gene_dgidb.csv",
+                "⬇️ Download DrugCentral suggestions (per gene)",
+                data=df_dc.to_csv(index=False).encode("utf-8"),
+                file_name="drug_suggestions_per_gene_drugcentral.csv",
                 mime="text/csv"
             )
             st.download_button(
-                "⬇️ Download drug summary (normalized with DrugBank)",
+                "⬇️ Download DrugCentral suggestions (aggregated)",
                 data=drug_sum.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_aggregated_dgidb_drugbank.csv",
+                file_name="drug_suggestions_aggregated_drugcentral.csv",
                 mime="text/csv"
             )
 
@@ -665,8 +692,8 @@ if run_btn:
                     dis_list = sorted(top_dis)
 
                     drugs_set = []
-                    if 'df_dgidb' in locals() and isinstance(df_dgidb, pd.DataFrame) and not df_dgidb.empty:
-                        freq = df_dgidb.groupby("drug_name")["gene"].nunique().sort_values(ascending=False)
+                    if 'df_dc' in locals() and isinstance(df_dc, pd.DataFrame) and not df_dc.empty:
+                        freq = df_dc.groupby("drug_name")["gene"].nunique().sort_values(ascending=False)
                         drugs_set = freq.head(15).index.tolist()
 
                     nodes = [f"G: {g}" for g in genes_set] + [f"D: {d}" for d in dis_list] + [f"Rx: {d}" for d in drugs_set]
@@ -677,8 +704,8 @@ if run_btn:
                         for g, cnt in Counter(sub["gene"]).items():
                             links.append((node_index[f"G: {g}"], node_index[f"D: {d}"], max(cnt, 1)))
 
-                    if drugs_set and 'df_dgidb' in locals() and not df_dgidb.empty:
-                        tmp = df_dgidb[df_dgidb['drug_name'].isin(drugs_set) & df_dgidb['gene'].isin(genes_set)]
+                    if drugs_set and 'df_dc' in locals() and not df_dc.empty:
+                        tmp = df_dc[df_dc['drug_name'].isin(drugs_set) & df_dc['gene'].isin(genes_set)]
                         for _, row in tmp.iterrows():
                             s = node_index[f"G: {row['gene']}"]
                             t = node_index.get(f"Rx: {row['drug_name']}")
@@ -693,7 +720,7 @@ if run_btn:
                             node=dict(pad=12, thickness=14, label=nodes),
                             link=dict(source=sources, target=targets, value=values),
                         )])
-                        fig_sankey.update_layout(title_text="Gene → Disease (→ Drug, DGIdb) connections", height=700)
+                        fig_sankey.update_layout(title_text="Gene → Disease (→ Drug, DrugCentral) connections", height=700)
                         st.plotly_chart(fig_sankey, use_container_width=True)
             except Exception as e:
                 st.warning(f"Sankey could not be drawn: {e}")
@@ -732,4 +759,4 @@ if run_btn:
                 st.warning(f"Network could not be drawn: {e}")
 
 st.markdown("---")
-st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL (disease links), DGIdb (gene–drug). Optional DrugBank CSV for normalization/filters. Data is fetched live and cached for 1h. Validate findings with primary sources.")
+st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL (disease links), DrugCentral (gene–drug). Data is fetched live and cached for 1h. Validate findings with primary sources.")
