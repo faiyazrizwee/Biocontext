@@ -23,7 +23,7 @@ import networkx as nx
 # ----------------------------
 st.set_page_config(
     page_title="Gene2Therapy – BioContext",
-    page_icon="logoo.png",
+    page_icon="logo.png",
     layout="wide",
 )
 
@@ -46,7 +46,7 @@ st.markdown(
 # Top header (branding)
 left, right = st.columns([1, 9])
 with left:
-    st.image("logoo.png", width=110)
+    st.image("logo.png", width=110)
 with right:
     st.markdown("### Gene2Therapy")
     st.caption("Gene → Enrichment → Disease → Drug repurposing")
