@@ -247,8 +247,32 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
 # ----------------------------
 # NEW: DrugCentral via MyChem.info (no auth)
 # ----------------------------
-MYGENE_URL = "https://mygene.info/v3/query"
-MYCHEM_URL = "https://mychem.info/v1/query"
+MYGENE_BASE = "https://mygene.info"
+MYCHEM_BASE = "https://mychem.info"
+MYGENE_URL = f"{MYGENE_BASE}/v3/query"
+MYCHEM_URL = f"{MYCHEM_BASE}/v1/query"
+
+@st.cache_data(ttl=300)
+def _net_status() -> dict:
+    """Quick connectivity & sanity checks against MyGene/MyChem."""
+    out = {"mygene": None, "mychem": None, "example_hits": None}
+    try:
+        r = requests.get(f"{MYGENE_BASE}/status", timeout=10)
+        out["mygene"] = r.status_code
+    except Exception as e:
+        out["mygene"] = f"error: {e}"
+    try:
+        r = requests.get(f"{MYCHEM_BASE}/status", timeout=10)
+        out["mychem"] = r.status_code
+    except Exception as e:
+        out["mychem"] = f"error: {e}"
+    # simple example query known to return hits (imatinib)
+    try:
+        r = requests.get(MYCHEM_URL, params={"q": "imatinib", "size": 1}, timeout=10)
+        out["example_hits"] = r.json().get("total", None)
+    except Exception as e:
+        out["example_hits"] = f"error: {e}"
+    return out
 
 @st.cache_data(ttl=3600)
 def _to_mygene_species_label(entrez_organism: str) -> str:
@@ -293,11 +317,11 @@ def mychem_drugcentral_query(uniprot_id: str | None = None, gene_symbol: str | N
             f"drugcentral.xref.uniprot:{uniprot_id}",
         ]
     if gene_symbol:
-        # Gene-symbol based target index present in MyChem (DrugCentral targets).
         clauses += [
             f"drugcentral.targets.gene_symbol:{gene_symbol}",
-            # extra heuristic:
             f"drugcentral.bioactivity.gene_symbol:{gene_symbol}",
+            f"drugcentral.bioactivity.target_name:{gene_symbol}",
+            f"drugcentral.targets.target_name:{gene_symbol}",
         ]
     if not clauses:
         return []
@@ -315,7 +339,7 @@ def collect_drug_suggestions_dc(genes: list[str], species_label: str = "human") 
     """
     For each gene symbol, query DrugCentral data via MyChem using *both* UniProt and
     symbol-based indices, then summarize actions & potency. More tolerant to
-    indexing differences (no empty tables for well-known targets like EGFR/BRAF).
+    indexing differences.
     """
     rows = []
     for g in genes:
@@ -328,15 +352,12 @@ def collect_drug_suggestions_dc(genes: list[str], species_label: str = "human") 
         hits.extend(mychem_drugcentral_query(uniprot_id=None, gene_symbol=g))
         time.sleep(0.05)
 
-        # De-duplicate by DrugCentral's internal name if possible
         seen_drug_ids = set()
         for h in hits:
             dc = h.get("drugcentral", {}) or {}
-            name = dc.get("drug_name") or (h.get("chembl", {}) or {}).get("pref_name") or (h.get("drugbank", {}) or {}).get("name") or "Unknown"
-            # if no DrugCentral block, skip
             if not dc:
                 continue
-            # normalize a pseudo id key from xrefs
+            name = dc.get("drug_name") or (h.get("chembl", {}) or {}).get("pref_name") or (h.get("drugbank", {}) or {}).get("name") or "Unknown"
             xref = dc.get("xref") or {}
             pseudo_id = xref.get("drugbank_id") or xref.get("inchikey") or name
             key = (g, pseudo_id)
@@ -349,8 +370,7 @@ def collect_drug_suggestions_dc(genes: list[str], species_label: str = "human") 
             potencies = []
             for b in bio:
                 uni = (b.get("uniprot") or {}).get("uniprot_id")
-                # keep entries linked to this gene's UniProt (if available) *or* any entry where gene symbol matches (when provided by index)
-                keep = (up and uni == up) or (not up)
+                keep = (up and uni == up) or (not up) or (gene_symbol and b.get("gene_symbol") == g)
                 if not keep:
                     continue
                 action = b.get("action_type") or b.get("moa")
@@ -362,11 +382,6 @@ def collect_drug_suggestions_dc(genes: list[str], species_label: str = "human") 
                     potencies.append(float(act_value))
                 except (TypeError, ValueError):
                     pass
-
-            if not rels:
-                # if no per-entry rels survived filtering, still keep the drug-level association
-                # (DrugCentral target index confirms relationship even if bioactivity rows lack UniProt detail)
-                pass
 
             best_pot = min(potencies) if potencies else None
 
@@ -672,8 +687,10 @@ if run_btn:
             df_drugs = collect_drug_suggestions_dc(genes, species_label=species_label)
 
         with st.expander("🔎 Diagnostics (DrugCentral/MyChem)", expanded=False):
+            status = _net_status()
+            st.write("**Connectivity**:", status)
             st.write(pd.DataFrame(map_preview))
-            st.caption("If UniProt IDs are missing, MyChem queries may be weaker; we also search by gene symbol to compensate.")
+            st.caption("If UniProt IDs are missing, MyChem queries may be weaker; we also search by gene symbol to compensate. If `mychem` status is not 200 or `example_hits` is 0/error, your runtime cannot reach MyChem.info.")
 
         if df_drugs.empty:
             st.info("No DrugCentral hits found for these genes (via MyChem). Try unchecking the 'approved' filter, or verify network access to mychem.info.")
