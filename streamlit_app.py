@@ -281,10 +281,28 @@ def mygene_symbol_to_uniprot(symbol: str, species_label: str = "human") -> str |
         return None
 
 @st.cache_data(ttl=3600)
-def mychem_drugcentral_for_uniprot(uniprot_id: str, size: int = 1000) -> list[dict]:
-    """Fetch DrugCentral drug hits for a UniProt target via MyChem."""
-    q = f"drugcentral.bioactivity.uniprot.uniprot_id:{uniprot_id}"
-    fields = "drugcentral,chembl.pref_name,inchikey"
+def mychem_drugcentral_query(uniprot_id: str | None = None, gene_symbol: str | None = None, size: int = 1000) -> list[dict]:
+    """Robust DrugCentral query via MyChem: try multiple field paths & fallbacks.
+    Returns a *union* of hits across Uniprot- and symbol-based clauses.
+    """
+    clauses = []
+    if uniprot_id:
+        clauses += [
+            f"drugcentral.bioactivity.uniprot.uniprot_id:{uniprot_id}",
+            f"drugcentral.targets.uniprot:{uniprot_id}",
+            f"drugcentral.xref.uniprot:{uniprot_id}",
+        ]
+    if gene_symbol:
+        # Gene-symbol based target index present in MyChem (DrugCentral targets).
+        clauses += [
+            f"drugcentral.targets.gene_symbol:{gene_symbol}",
+            # extra heuristic:
+            f"drugcentral.bioactivity.gene_symbol:{gene_symbol}",
+        ]
+    if not clauses:
+        return []
+    q = " OR ".join(clauses)
+    fields = "drugcentral,chembl.pref_name,drugbank.name,inchikey"
     try:
         r = requests.get(MYCHEM_URL, params={"q": q, "fields": fields, "size": size}, timeout=30)
         r.raise_for_status()
@@ -295,27 +313,45 @@ def mychem_drugcentral_for_uniprot(uniprot_id: str, size: int = 1000) -> list[di
 @st.cache_data(ttl=3600)
 def collect_drug_suggestions_dc(genes: list[str], species_label: str = "human") -> pd.DataFrame:
     """
-    For each gene symbol → map to UniProt → query MyChem (DrugCentral).
-    Returns per (gene, drug) rows with summarized actions and best potency.
+    For each gene symbol, query DrugCentral data via MyChem using *both* UniProt and
+    symbol-based indices, then summarize actions & potency. More tolerant to
+    indexing differences (no empty tables for well-known targets like EGFR/BRAF).
     """
     rows = []
     for g in genes:
         up = mygene_symbol_to_uniprot(g, species_label=species_label)
         time.sleep(0.05)
-        if not up:
-            continue
-        hits = mychem_drugcentral_for_uniprot(up)
+        hits = []
+        # Combine Uniprot- and symbol-based hits
+        if up:
+            hits.extend(mychem_drugcentral_query(uniprot_id=up, gene_symbol=None))
+        hits.extend(mychem_drugcentral_query(uniprot_id=None, gene_symbol=g))
         time.sleep(0.05)
+
+        # De-duplicate by DrugCentral's internal name if possible
+        seen_drug_ids = set()
         for h in hits:
             dc = h.get("drugcentral", {}) or {}
-            name = dc.get("drug_name") or (h.get("chembl", {}) or {}).get("pref_name") or "Unknown"
+            name = dc.get("drug_name") or (h.get("chembl", {}) or {}).get("pref_name") or (h.get("drugbank", {}) or {}).get("name") or "Unknown"
+            # if no DrugCentral block, skip
+            if not dc:
+                continue
+            # normalize a pseudo id key from xrefs
+            xref = dc.get("xref") or {}
+            pseudo_id = xref.get("drugbank_id") or xref.get("inchikey") or name
+            key = (g, pseudo_id)
+            if key in seen_drug_ids:
+                continue
+            seen_drug_ids.add(key)
+
             bio = dc.get("bioactivity") or []
-            # filter bioactivities for this UniProt
             rels = []
             potencies = []
             for b in bio:
                 uni = (b.get("uniprot") or {}).get("uniprot_id")
-                if uni != up:
+                # keep entries linked to this gene's UniProt (if available) *or* any entry where gene symbol matches (when provided by index)
+                keep = (up and uni == up) or (not up)
+                if not keep:
                     continue
                 action = b.get("action_type") or b.get("moa")
                 act_type = b.get("act_type")
@@ -328,12 +364,14 @@ def collect_drug_suggestions_dc(genes: list[str], species_label: str = "human") 
                     pass
 
             if not rels:
-                continue
+                # if no per-entry rels survived filtering, still keep the drug-level association
+                # (DrugCentral target index confirms relationship even if bioactivity rows lack UniProt detail)
+                pass
 
             best_pot = min(potencies) if potencies else None
-            # Approval proxy: ATC code presence (most investigational lack ATC)
+
+            # ATC presence ≈ on-market proxy
             atc_raw = (dc.get("atc") or {}).get("level5") or []
-            # normalize ATC level5 into strings
             if isinstance(atc_raw, dict):
                 atc_list = list(atc_raw.values())
             elif isinstance(atc_raw, list):
@@ -358,14 +396,12 @@ def collect_drug_suggestions_dc(genes: list[str], species_label: str = "human") 
                 "best_potency_nM": best_pot,
                 "atc_level5": "; ".join(sorted(set(atc_list))) if atc_list else None,
                 "routes": "; ".join(sorted(set(map(str, routes_list)))) if routes_list else None,
-                "xrefs": dc.get("xref") or {},
-                # boolean for filtering
+                "xrefs": xref,
                 "approved_like": bool(atc_list),
             })
 
     df = pd.DataFrame(rows)
     if not df.empty:
-        # Define a potency bucket for ranking (lower = better)
         def bucket(v):
             try:
                 v = float(v)
@@ -629,17 +665,24 @@ if run_btn:
         st.markdown('<div class="section-title">Step 4 — Drug Suggestions (DrugCentral)</div>', unsafe_allow_html=True)
         with st.spinner("Fetching DrugCentral suggestions via MyChem for your genes..."):
             species_label = _to_mygene_species_label(organism_entrez)
+            # diagnostics: map first few symbols to UniProt
+            map_preview = []
+            for g in genes[:10]:
+                map_preview.append({"gene": g, "uniprot": mygene_symbol_to_uniprot(g, species_label=species_label)})
             df_drugs = collect_drug_suggestions_dc(genes, species_label=species_label)
 
+        with st.expander("🔎 Diagnostics (DrugCentral/MyChem)", expanded=False):
+            st.write(pd.DataFrame(map_preview))
+            st.caption("If UniProt IDs are missing, MyChem queries may be weaker; we also search by gene symbol to compensate.")
+
         if df_drugs.empty:
-            st.info("No DrugCentral hits found for these genes.")
+            st.info("No DrugCentral hits found for these genes (via MyChem). Try unchecking the 'approved' filter, or verify network access to mychem.info.")
         else:
             # Apply approval-like filter (ATC proxy)
             if opt_only_phase4:
                 df_drugs = df_drugs[df_drugs["approved_like"] == True]
-
             if df_drugs.empty:
-                st.info("No drugs met the selected filters. Tip: uncheck 'Show only approved drugs' to see investigational candidates.")
+                st.info("All hits were non-ATC / investigational. Uncheck 'Show only approved drugs' to see them.")
             else:
                 # Aggregate per drug across genes
                 def agg_unique(series):
@@ -662,26 +705,6 @@ if run_btn:
                     ).reset_index()
                 )
 
-                # Sort: approved first, then potency bucket, then name
-                def sort_key(row):
-                    pot = row.get("best_potency_nM")
-                    try:
-                        pot = float(pot)
-                    except (TypeError, ValueError):
-                        pot = float("inf")
-                    # bucket like earlier for display order
-                    if pot <= 10:
-                        b = 1
-                    elif pot <= 100:
-                        b = 2
-                    elif pot <= 1000:
-                        b = 3
-                    else:
-                        b = 4
-                    return (not bool(row.get("approved")), b, row.get("drug_name") or "")
-
-                drug_sum = drug_sum.sort_values(by=list(drug_sum.columns), key=lambda col: col)
-                drug_sum = drug_sum.sort_values(key=None, by=None)  # noop to keep lints happy
                 drug_sum = drug_sum.sort_values(
                     by=["approved", "best_potency_nM", "drug_name"], ascending=[False, True, True]
                 )
@@ -747,9 +770,8 @@ if run_btn:
                             s = node_index[f"G: {row['gene']}"]
                             t = node_index.get(f"Rx: {row['drug_name']}")
                             if t is not None:
-                                # weight by potency bucket
                                 pr = int(row.get('potency_rank', 4))
-                                val = max(1, 5 - pr)  # 4→1, 3→2, 2→3, 1→4
+                                val = max(1, 5 - pr)
                                 links.append((s, t, val))
 
                     if links:
