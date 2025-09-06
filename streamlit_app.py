@@ -250,33 +250,43 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
 DRUGCENTRAL = "https://drugcentral.org/api"
 
 @st.cache_data(ttl=3600)
-def drugcentral_get(path: str, params: dict | None = None) -> dict | list:
+def drugcentral_get(path: str, params: dict | None = None) -> tuple[int, str, object]:
     """
-    Generic GET to DrugCentral API.
-    Returns dict or list (DrugCentral returns both, depending on endpoint).
+    GET wrapper that returns (status_code, url, parsed_json_or_None).
+    Surfaces status codes so we can debug.
     """
     try:
-        r = requests.get(f"{DRUGCENTRAL}{path}", params=params or {}, timeout=40)
-        if r.status_code >= 400:
-            return {}
-        return r.json()
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "BioContext-Gene2Therapy/1.0 (+streamlit)"
+        }
+        r = requests.get(f"{DRUGCENTRAL}{path}", params=params or {}, headers=headers, timeout=45)
+        content_type = r.headers.get("Content-Type", "")
+        js = None
+        if "application/json" in content_type.lower():
+            try:
+                js = r.json()
+            except Exception:
+                js = None
+        return r.status_code, r.url, js
     except Exception:
-        return {}
+        return 0, f"{DRUGCENTRAL}{path}", None
 
 def _dc_extract(js):
     if isinstance(js, list):
         return js
     if isinstance(js, dict) and js.get("results"):
         return js["results"]
+    # some DC endpoints put payload directly at top-level dict
+    if isinstance(js, dict):
+        # heuristic: look for array values
+        for v in js.values():
+            if isinstance(v, list) and v and isinstance(v[0], dict):
+                return v
     return []
 
-# --- NEW: map gene symbols → UniProt accessions (Swiss-Prot) ---
 @st.cache_data(ttl=3600)
 def map_genes_to_uniprot(genes: list[str]) -> dict:
-    """
-    Return dict: SYMBOL -> set({uniprot accessions}).
-    Uses MyGene.info; tolerant to missing entries.
-    """
     if not genes:
         return {}
     q = " OR ".join([f"symbol:{g}" for g in sorted(set(genes))])
@@ -303,48 +313,48 @@ def map_genes_to_uniprot(genes: list[str]) -> dict:
         return {}
 
 @st.cache_data(ttl=3600)
-def dc_probe_gene(symbol: str, uniprots: set[str] | None = None) -> list[dict]:
+def dc_probe_gene(symbol: str, uniprots: set[str] | None = None) -> tuple[list[dict], list[dict]]:
     """
-    Probe multiple DrugCentral routes:
-      - /bioactivity?gene=<symbol>
-      - /bioactivity?target=<symbol>
-      - /bioactivity?uniprot=<acc>  (for each mapped UniProt)
-      - /search?q=<symbol>          (broad fallback)
-    Deduplicate by (drug name, target id/accession).
+    Probe multiple DrugCentral routes. Returns (records, call_log)
+    call_log holds tuples for diagnostics.
     """
-    out = []
+    records, log = [], []
 
-    # 1) symbol-based
-    out += _dc_extract(drugcentral_get("/bioactivity", {"gene": symbol}))
-    out += _dc_extract(drugcentral_get("/bioactivity", {"target": symbol}))
+    def hit(path, params, label):
+        status, url, js = drugcentral_get(path, params)
+        recs = _dc_extract(js)
+        log.append({"label": label, "status": status, "url": url, "n": len(recs)})
+        return recs
 
-    # 2) uniprot-based
+    # symbol-based routes
+    records += hit("/bioactivity", {"gene": symbol}, "bioactivity?gene=" + symbol)
+    records += hit("/bioactivity", {"target": symbol}, "bioactivity?target=" + symbol)
+    records += hit("/bioactivity", {"target_name": symbol}, "bioactivity?target_name=" + symbol)
+
+    # uniprot-based routes
     for acc in (uniprots or []):
-        out += _dc_extract(drugcentral_get("/bioactivity", {"uniprot": acc}))
+        records += hit("/bioactivity", {"uniprot": acc}, "bioactivity?uniprot=" + acc)
 
-    # 3) broad fallback
-    out += _dc_extract(drugcentral_get("/search", {"q": symbol}))
+    # broad search fallback
+    records += hit("/search", {"q": symbol}, "search?q=" + symbol)
 
     # de-duplicate
     seen, deduped = set(), []
-    for rec in out:
+    for rec in records:
         drug = str(rec.get("drugname") or rec.get("drug") or rec.get("name") or rec.get("pref_name") or "").strip()
         tgt  = str(rec.get("target") or rec.get("target_name") or rec.get("uniprot") or rec.get("accession") or "").strip()
         key = (drug.lower(), tgt.lower())
         if drug and key not in seen:
             seen.add(key)
             deduped.append(rec)
-    return deduped
+
+    return deduped, log
 
 @st.cache_data(ttl=3600)
-def drugcentral_drugs_for_gene(symbol: str, uniprots: set[str] | None = None) -> pd.DataFrame:
-    """
-    Normalize DrugCentral records for a single gene symbol into:
-    columns: gene, drug_name, action, activity, target, source
-    """
-    recs = dc_probe_gene(symbol, uniprots)
+def drugcentral_drugs_for_gene(symbol: str, uniprots: set[str] | None = None) -> tuple[pd.DataFrame, list[dict]]:
+    recs, log = dc_probe_gene(symbol, uniprots)
     if not recs:
-        return pd.DataFrame(columns=["gene","drug_name","action","activity","target","source"])
+        return pd.DataFrame(columns=["gene","drug_name","action","activity","target","source"]), log
 
     rows = []
     for r in recs:
@@ -364,35 +374,42 @@ def drugcentral_drugs_for_gene(symbol: str, uniprots: set[str] | None = None) ->
             "target": target,
             "source": "DrugCentral"
         })
+
     df = pd.DataFrame(rows)
     if df.empty:
-        return df
-    return (df.groupby(["gene","drug_name"], as_index=False)
-              .agg(action=("action", lambda s: "; ".join(sorted({x for x in s if x}))),
-                   activity=("activity", lambda s: "; ".join(sorted({x for x in s if x}))),
-                   target=("target", lambda s: "; ".join(sorted({x for x in s if x}))),
-                   source=("source", "first")))
+        return df, log
+
+    df = (df.groupby(["gene","drug_name"], as_index=False)
+            .agg(action=("action", lambda s: "; ".join(sorted({x for x in s if x}))),
+                 activity=("activity", lambda s: "; ".join(sorted({x for x in s if x}))),
+                 target=("target", lambda s: "; ".join(sorted({x for x in s if x}))),
+                 source=("source", "first")))
+    return df, log
 
 @st.cache_data(ttl=3600)
-def collect_drug_suggestions_drugcentral(genes: list[str]) -> pd.DataFrame:
+def collect_drug_suggestions_drugcentral(genes: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    For each gene symbol, fetch DrugCentral suggestions and concatenate.
-    Uses UniProt mapping to improve recall.
+    Returns (all_hits_df, diagnostics_df)
+    diagnostics_df lists each API probe and its status/hit count.
     """
     uni = map_genes_to_uniprot(genes)
     frames = []
+    dlogs = []
     for g in genes:
         try:
             accs = uni.get(g.upper(), set())
-            df = drugcentral_drugs_for_gene(g, accs)
+            df, log = drugcentral_drugs_for_gene(g, accs)
             if not df.empty:
                 frames.append(df)
+            for entry in log:
+                dlogs.append({"gene": g, **entry})
             time.sleep(0.05)
         except Exception:
             continue
-    if frames:
-        return pd.concat(frames, ignore_index=True)
-    return pd.DataFrame(columns=["gene","drug_name","action","activity","target","source"])
+    df_hits = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["gene","drug_name","action","activity","target","source"])
+    df_diag = pd.DataFrame(dlogs) if dlogs else pd.DataFrame(columns=["gene","label","status","url","n"])
+    return df_hits, df_diag
+
 
 # ----------------------------
 # Core functions
@@ -625,69 +642,51 @@ if run_btn:
                 pass
 
     # -------- Step 4: Drug Suggestions (DrugCentral) --------
-    with drug_tab:
-        st.markdown('<div class="section-title">Step 4 — Repurposable Drug Suggestions (DrugCentral)</div>', unsafe_allow_html=True)
+with drug_tab:
+    st.markdown('<div class="section-title">Step 4 — Repurposable Drug Suggestions (DrugCentral)</div>', unsafe_allow_html=True)
 
-        with st.spinner("Querying DrugCentral for gene–drug evidence..."):
-            df_dc = collect_drug_suggestions_drugcentral(genes)
+    with st.spinner("Querying DrugCentral for gene–drug evidence..."):
+        df_dc, df_diag = collect_drug_suggestions_drugcentral(genes)
 
-        # Debug expander: UniProt mapping + a few raw hits
-        with st.expander("🔎 DrugCentral probe (UniProt mapping + first few hits per gene)"):
-            mp = map_genes_to_uniprot(genes)
-            if mp:
-                st.write("UniProt mapping (symbol → accessions):", {k: sorted(list(v)) for k, v in mp.items()})
-            preview = []
-            for g in genes[:10]:
-                accs = mp.get(g.upper(), set())
-                recs = dc_probe_gene(g, accs)
-                for r in recs[:5]:
-                    preview.append({
-                        "gene": g,
-                        "drug": r.get("drugname") or r.get("drug") or r.get("name") or r.get("pref_name"),
-                        "target": r.get("target") or r.get("target_name") or r.get("uniprot") or r.get("accession"),
-                        "action": r.get("action_type") or r.get("MOA") or r.get("act_type"),
-                        "act_value": r.get("act_value"),
-                        "act_unit": r.get("act_unit")
-                    })
-            if preview:
-                st.dataframe(pd.DataFrame(preview), use_container_width=True, hide_index=True)
-            else:
-                st.caption("No raw hits shown (either no matches or limited by preview).")
-
-        if df_dc.empty:
-            st.info("No DrugCentral gene–drug links found for the provided genes.")
+    with st.expander("🔎 DrugCentral diagnostics (what each API call returned)"):
+        if not df_diag.empty:
+            st.dataframe(df_diag.sort_values(["gene","label"]), use_container_width=True, hide_index=True)
         else:
-            # Aggregate by drug for compact view
-            def _agg_unique(series):
-                return "; ".join(sorted({x for x in series if x}))
+            st.caption("No diagnostics collected.")
 
-            drug_sum = (
-                df_dc.groupby(["drug_name"], as_index=False)
-                     .agg(genes=("gene", lambda s: ";".join(sorted(set(s)))),
-                          actions=("action", _agg_unique),
-                          targets=("target", _agg_unique),
-                          activity=("activity", _agg_unique),
-                          sources=("source", _agg_unique))
-                     .sort_values("drug_name")
-            )
+    if df_dc.empty:
+        st.info("No DrugCentral gene–drug links found for the provided genes.")
+    else:
+        def _agg_unique(series):
+            return "; ".join(sorted({x for x in series if x}))
 
-            showRx = drug_sum.copy()
-            showRx.insert(0, "#", range(1, len(showRx) + 1))
-            cols = [c for c in ["#", "drug_name", "genes", "actions", "targets", "activity", "sources"] if c in showRx.columns]
-            st.dataframe(showRx[cols], use_container_width=True, hide_index=True)
+        drug_sum = (
+            df_dc.groupby(["drug_name"], as_index=False)
+                 .agg(genes=("gene", lambda s: ";".join(sorted(set(s)))),
+                      actions=("action", _agg_unique),
+                      targets=("target", _agg_unique),
+                      activity=("activity", _agg_unique),
+                      sources=("source", _agg_unique))
+                 .sort_values("drug_name")
+        )
 
-            st.download_button(
-                "⬇️ Download DrugCentral suggestions (per gene)",
-                data=df_dc.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_per_gene_drugcentral.csv",
-                mime="text/csv"
-            )
-            st.download_button(
-                "⬇️ Download DrugCentral suggestions (aggregated)",
-                data=drug_sum.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_aggregated_drugcentral.csv",
-                mime="text/csv"
-            )
+        showRx = drug_sum.copy()
+        showRx.insert(0, "#", range(1, len(showRx) + 1))
+        st.dataframe(showRx[["#", "drug_name", "genes", "actions", "targets", "activity", "sources"]], use_container_width=True, hide_index=True)
+
+        st.download_button(
+            "⬇️ Download DrugCentral suggestions (per gene)",
+            data=df_dc.to_csv(index=False).encode("utf-8"),
+            file_name="drug_suggestions_per_gene_drugcentral.csv",
+            mime="text/csv"
+        )
+        st.download_button(
+            "⬇️ Download DrugCentral suggestions (aggregated)",
+            data=drug_sum.to_csv(index=False).encode("utf-8"),
+            file_name="drug_suggestions_aggregated_drugcentral.csv",
+            mime="text/csv"
+        )
+
 
     # -------- Step 5: Visualizations --------
     with viz_tab:
