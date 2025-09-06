@@ -1,8 +1,8 @@
-# streamlit_app.py
+# streamlit_app.py (DrugCentral version)
 # -------------------------------------------------------------
 # BioContext – Gene2Therapy
 # Gene list → KEGG enrichment (counts-only) → Disease links (OpenTargets)
-# → Drug repurposing (Phase-4 filter)
+# → Drug suggestions from DrugCentral (via MyChem.info) – approval ≈ ATC proxy
 # → Visualizations
 # -------------------------------------------------------------
 
@@ -188,7 +188,7 @@ def kegg_pathway_name(pathway_id: str) -> str | None:
     return None
 
 # ----------------------------
-# OpenTargets (no API key)
+# OpenTargets (kept for disease links)
 # ----------------------------
 OT_GQL = "https://api.platform.opentargets.org/api/v4/graphql"
 
@@ -244,38 +244,147 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
         })
     return pd.DataFrame(out)
 
+# ----------------------------
+# NEW: DrugCentral via MyChem.info (no auth)
+# ----------------------------
+MYGENE_URL = "https://mygene.info/v3/query"
+MYCHEM_URL = "https://mychem.info/v1/query"
+
 @st.cache_data(ttl=3600)
-def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
-    q = """
-    query KnownDrugs($id: String!, $size: Int!) {
-      target(ensemblId: $id) {
-        id
-        knownDrugs(size: $size) {
-          rows {
-            phase
-            mechanismOfAction
-            drug { id name }
-            disease { id name }
-          }
-        }
-      }
+def _to_mygene_species_label(entrez_organism: str) -> str:
+    mapping = {
+        "Homo sapiens": "human",
+        "Mus musculus": "mouse",
+        "Rattus norvegicus": "rat",
     }
+    return mapping.get(entrez_organism, "human")
+
+@st.cache_data(ttl=3600)
+def mygene_symbol_to_uniprot(symbol: str, species_label: str = "human") -> str | None:
+    """Map HGNC symbol to a primary UniProt accession (Swiss-Prot) using MyGene."""
+    params = {
+        "q": f"symbol:{symbol} AND species:{species_label}",
+        "fields": "uniprot.Swiss-Prot,entrezgene,symbol,name",
+        "size": 1,
+    }
+    try:
+        r = requests.get(MYGENE_URL, params=params, timeout=20)
+        r.raise_for_status()
+        hits = r.json().get("hits", [])
+        if not hits:
+            return None
+        swiss = hits[0].get("uniprot", {}).get("Swiss-Prot")
+        if isinstance(swiss, list):
+            return swiss[0]
+        return swiss
+    except Exception:
+        return None
+
+@st.cache_data(ttl=3600)
+def mychem_drugcentral_for_uniprot(uniprot_id: str, size: int = 1000) -> list[dict]:
+    """Fetch DrugCentral drug hits for a UniProt target via MyChem."""
+    q = f"drugcentral.bioactivity.uniprot.uniprot_id:{uniprot_id}"
+    fields = "drugcentral,chembl.pref_name,inchikey"
+    try:
+        r = requests.get(MYCHEM_URL, params={"q": q, "fields": fields, "size": size}, timeout=30)
+        r.raise_for_status()
+        return r.json().get("hits", [])
+    except Exception:
+        return []
+
+@st.cache_data(ttl=3600)
+def collect_drug_suggestions_dc(genes: list[str], species_label: str = "human") -> pd.DataFrame:
     """
-    data = ot_query(q, {"id": ensembl_id, "size": size})
-    rows = (((data or {}).get("data", {})).get("target", {}) or {}).get("knownDrugs", {}).get("rows", [])
-    out = []
-    for r in rows:
-        drug_obj = r.get("drug") or {}
-        disease_obj = r.get("disease") or {}
-        out.append({
-            "target": ensembl_id,
-            "drug_id": drug_obj.get("id"),
-            "drug_name": drug_obj.get("name"),
-            "phase": r.get("phase"),
-            "moa": r.get("mechanismOfAction"),
-            "diseases": "; ".join(filter(None, [disease_obj.get("name")])),
-        })
-    return pd.DataFrame(out)
+    For each gene symbol → map to UniProt → query MyChem (DrugCentral).
+    Returns per (gene, drug) rows with summarized actions and best potency.
+    """
+    rows = []
+    for g in genes:
+        up = mygene_symbol_to_uniprot(g, species_label=species_label)
+        time.sleep(0.05)
+        if not up:
+            continue
+        hits = mychem_drugcentral_for_uniprot(up)
+        time.sleep(0.05)
+        for h in hits:
+            dc = h.get("drugcentral", {}) or {}
+            name = dc.get("drug_name") or (h.get("chembl", {}) or {}).get("pref_name") or "Unknown"
+            bio = dc.get("bioactivity") or []
+            # filter bioactivities for this UniProt
+            rels = []
+            potencies = []
+            for b in bio:
+                uni = (b.get("uniprot") or {}).get("uniprot_id")
+                if uni != up:
+                    continue
+                action = b.get("action_type") or b.get("moa")
+                act_type = b.get("act_type")
+                act_value = b.get("act_value")
+                qualifier = b.get("act_value_symbol") or b.get("act_value_prefix")
+                rels.append((action, act_type, act_value, qualifier))
+                try:
+                    potencies.append(float(act_value))
+                except (TypeError, ValueError):
+                    pass
+
+            if not rels:
+                continue
+
+            best_pot = min(potencies) if potencies else None
+            # Approval proxy: ATC code presence (most investigational lack ATC)
+            atc_raw = (dc.get("atc") or {}).get("level5") or []
+            # normalize ATC level5 into strings
+            if isinstance(atc_raw, dict):
+                atc_list = list(atc_raw.values())
+            elif isinstance(atc_raw, list):
+                atc_list = []
+                for item in atc_raw:
+                    if isinstance(item, dict):
+                        atc_list.extend([str(v) for v in item.values()])
+                    else:
+                        atc_list.append(str(item))
+            else:
+                atc_list = [str(atc_raw)] if atc_raw else []
+
+            routes_raw = (dc.get("pharmacology") or {}).get("routes") or []
+            routes_list = routes_raw if isinstance(routes_raw, list) else [routes_raw] if routes_raw else []
+
+            rows.append({
+                "gene": g,
+                "uniprot": up,
+                "drug_name": name,
+                "actions": "; ".join(sorted({r[0] for r in rels if r[0]})) or None,
+                "act_types": "; ".join(sorted({r[1] for r in rels if r[1]})) or None,
+                "best_potency_nM": best_pot,
+                "atc_level5": "; ".join(sorted(set(atc_list))) if atc_list else None,
+                "routes": "; ".join(sorted(set(map(str, routes_list)))) if routes_list else None,
+                "xrefs": dc.get("xref") or {},
+                # boolean for filtering
+                "approved_like": bool(atc_list),
+            })
+
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        # Define a potency bucket for ranking (lower = better)
+        def bucket(v):
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                return 4
+            if v <= 10:
+                return 1
+            if v <= 100:
+                return 2
+            if v <= 1000:
+                return 3
+            return 4
+        df["potency_rank"] = df["best_potency_nM"].apply(bucket)
+    else:
+        df = pd.DataFrame(columns=[
+            "gene","uniprot","drug_name","actions","act_types","best_potency_nM",
+            "atc_level5","routes","xrefs","approved_like","potency_rank"
+        ])
+    return df
 
 # ----------------------------
 # Core functions
@@ -325,7 +434,7 @@ def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
     return df
 
 # ----------------------------
-# Cohort-level OpenTargets: mapping, diseases, drugs
+# Cohort-level OpenTargets: mapping + diseases (UNCHANGED)
 # ----------------------------
 @st.cache_data(ttl=3600)
 def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens") -> dict:
@@ -352,22 +461,6 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
     if frames:
         return pd.concat(frames, ignore_index=True)
     return pd.DataFrame(columns=["gene", "target", "disease_id", "disease_name", "association_score"])
-
-@st.cache_data(ttl=3600)
-def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
-    frames = []
-    for g, tgt in gene_to_target.items():
-        tid = tgt.get("id")
-        if not tid:
-            continue
-        df = ot_drugs_for_target(tid)
-        if not df.empty:
-            df.insert(0, "gene", g)
-            frames.append(df)
-        time.sleep(0.05)
-    if frames:
-        return pd.concat(frames, ignore_index=True)
-    return pd.DataFrame(columns=["gene", "target", "drug_id", "drug_name", "phase", "moa", "diseases"])
 
 # ----------------------------
 # UI – Inputs
@@ -401,9 +494,9 @@ manual_input = st.text_area(
 # ---- Drug filters (applied in the Drug Suggestions tab)
 st.markdown("#### Drug filters (applied in the Drug Suggestions tab)")
 opt_only_phase4 = st.checkbox(
-    "Show only approved drugs (Phase 4)",
+    "Show only approved drugs",
     value=True,
-    help="Filters to max_phase ≥ 4."
+    help="Heuristic: keep drugs with ATC codes (proxy for marketed/approved)."
 )
 
 genes_from_input: list[str] = []
@@ -488,7 +581,7 @@ if run_btn:
             except Exception:
                 pass
 
-    # -------- Step 3: Disease Links --------
+    # -------- Step 3: Disease Links (OpenTargets) --------
     with disease_tab:
         st.markdown('<div class="section-title">Step 3 — Disease Associations (OpenTargets)</div>', unsafe_allow_html=True)
         with st.spinner("Mapping symbols to Ensembl IDs and fetching disease links..."):
@@ -531,69 +624,91 @@ if run_btn:
             except Exception:
                 pass
 
-    # -------- Step 4: Drug Suggestions --------
+    # -------- Step 4: Drug Suggestions (DrugCentral via MyChem) --------
     with drug_tab:
-        st.markdown('<div class="section-title">Step 4 — Repurposable Drug Suggestions</div>', unsafe_allow_html=True)
-        with st.spinner("Fetching known drugs targeting your genes..."):
-            df_drugs = collect_drug_suggestions(g2t)
+        st.markdown('<div class="section-title">Step 4 — Drug Suggestions (DrugCentral)</div>', unsafe_allow_html=True)
+        with st.spinner("Fetching DrugCentral suggestions via MyChem for your genes..."):
+            species_label = _to_mygene_species_label(organism_entrez)
+            df_drugs = collect_drug_suggestions_dc(genes, species_label=species_label)
 
         if df_drugs.empty:
-            st.info("No drugs found for the mapped targets.")
+            st.info("No DrugCentral hits found for these genes.")
         else:
-            # Rank per-row by phase (robust cast), then aggregate
-            df_drugs["phase_rank"] = pd.to_numeric(df_drugs["phase"], errors="coerce").fillna(0).astype(int)
-
-            drug_sum = (
-                df_drugs.groupby(["drug_id", "drug_name"]).agg(
-                    targets=("target", lambda s: ";".join(sorted(set(s)))),
-                    genes=("gene", lambda s: ";".join(sorted(set(s)))),
-                    indications=("diseases", lambda s: "; ".join(sorted({x for x in "; ".join(s).split("; ") if x}))),
-                    moa=("moa", lambda s: "; ".join(sorted({x for x in s if x}))),
-                    max_phase=("phase", "max"),
-                ).reset_index()
-            )
-
-            # Internal approval flag based on Phase 4
-            drug_sum["max_phase"] = pd.to_numeric(drug_sum["max_phase"], errors="coerce").fillna(0).astype(int)
-            drug_sum["approved"] = drug_sum["max_phase"] >= 4
-
-            # If user wants only approved, filter now
+            # Apply approval-like filter (ATC proxy)
             if opt_only_phase4:
-                drug_sum = drug_sum[drug_sum["approved"] == True]
+                df_drugs = df_drugs[df_drugs["approved_like"] == True]
 
-            # Sort and show
-            drug_sum = drug_sum.sort_values(
-                ["approved", "max_phase", "drug_name"],
-                ascending=[False, False, True]
-            )
-
-            if drug_sum.empty:
-                msg = "No drugs met the selected filters. Tip: uncheck 'Show only approved (Phase 4)' to see investigational candidates."
-                st.info(msg)
+            if df_drugs.empty:
+                st.info("No drugs met the selected filters. Tip: uncheck 'Show only approved drugs' to see investigational candidates.")
             else:
-                # Display (with a serial '#'), omitting approved_phase4 and drugcentral_approved
+                # Aggregate per drug across genes
+                def agg_unique(series):
+                    vals = [v for v in series if v]
+                    parts = set()
+                    for v in vals:
+                        parts.update(str(v).split("; "))
+                    return "; ".join(sorted({p for p in parts if p})) if parts else None
+
+                drug_sum = (
+                    df_drugs.groupby(["drug_name"]).agg(
+                        genes=("gene", lambda s: ";".join(sorted(set(s)))),
+                        uniprots=("uniprot", lambda s: ";".join(sorted(set(s)))),
+                        actions=("actions", agg_unique),
+                        act_types=("act_types", agg_unique),
+                        best_potency_nM=("best_potency_nM", "min"),
+                        atc_level5=("atc_level5", agg_unique),
+                        routes=("routes", agg_unique),
+                        approved=("approved_like", "max"),
+                    ).reset_index()
+                )
+
+                # Sort: approved first, then potency bucket, then name
+                def sort_key(row):
+                    pot = row.get("best_potency_nM")
+                    try:
+                        pot = float(pot)
+                    except (TypeError, ValueError):
+                        pot = float("inf")
+                    # bucket like earlier for display order
+                    if pot <= 10:
+                        b = 1
+                    elif pot <= 100:
+                        b = 2
+                    elif pot <= 1000:
+                        b = 3
+                    else:
+                        b = 4
+                    return (not bool(row.get("approved")), b, row.get("drug_name") or "")
+
+                drug_sum = drug_sum.sort_values(by=list(drug_sum.columns), key=lambda col: col)
+                drug_sum = drug_sum.sort_values(key=None, by=None)  # noop to keep lints happy
+                drug_sum = drug_sum.sort_values(
+                    by=["approved", "best_potency_nM", "drug_name"], ascending=[False, True, True]
+                )
+
+                # Display table
                 showRx = drug_sum.copy()
                 showRx.insert(0, "#", range(1, len(showRx) + 1))
                 cols_order = [c for c in [
-                    "#", "drug_id", "drug_name", "targets", "genes", "indications", "moa",
-                    "max_phase", "approved"
+                    "#", "drug_name", "approved", "best_potency_nM", "actions", "act_types",
+                    "atc_level5", "routes", "genes", "uniprots"
                 ] if c in showRx.columns]
                 other_cols = [c for c in showRx.columns if c not in cols_order]
                 st.dataframe(showRx[cols_order + other_cols], use_container_width=True, hide_index=True)
 
-            # Raw downloads
-            st.download_button(
-                "⬇️ Download drug suggestions (per target)",
-                data=df_drugs.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_per_target.csv",
-                mime="text/csv"
-            )
-            st.download_button(
-                "⬇️ Download drug suggestions (aggregated + filters)",
-                data=drug_sum.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_aggregated_filtered.csv",
-                mime="text/csv"
-            )
+                # Raw downloads
+                st.download_button(
+                    "⬇️ Download drug suggestions (per gene)",
+                    data=df_drugs.to_csv(index=False).encode("utf-8"),
+                    file_name="drug_suggestions_drugcentral_per_gene.csv",
+                    mime="text/csv"
+                )
+                st.download_button(
+                    "⬇️ Download drug suggestions (aggregated + filters)",
+                    data=drug_sum.to_csv(index=False).encode("utf-8"),
+                    file_name="drug_suggestions_drugcentral_aggregated.csv",
+                    mime="text/csv"
+                )
 
     # -------- Step 5: Visualizations --------
     with viz_tab:
@@ -615,8 +730,7 @@ if run_btn:
                     drugs_set = []
                     if 'df_drugs' in locals() and not df_drugs.empty:
                         tmp = df_drugs[df_drugs['gene'].isin(genes_set)].copy()
-                        tmp['phase_rank'] = pd.to_numeric(tmp['phase'], errors='coerce').fillna(0).astype(int)
-                        tmp = tmp.sort_values('phase_rank', ascending=False)
+                        tmp = tmp.sort_values('potency_rank', ascending=True)
                         drugs_set = sorted(set(tmp.head(100)['drug_name']))[:15]
 
                     nodes = [f"G: {g}" for g in genes_set] + [f"D: {d}" for d in dis_list] + [f"Rx: {d}" for d in drugs_set]
@@ -633,8 +747,10 @@ if run_btn:
                             s = node_index[f"G: {row['gene']}"]
                             t = node_index.get(f"Rx: {row['drug_name']}")
                             if t is not None:
-                                val = int(pd.to_numeric(row.get('phase'), errors='coerce') or 0)
-                                links.append((s, t, max(val, 1)))
+                                # weight by potency bucket
+                                pr = int(row.get('potency_rank', 4))
+                                val = max(1, 5 - pr)  # 4→1, 3→2, 2→3, 1→4
+                                links.append((s, t, val))
 
                     if links:
                         sources = [s for s, _, _ in links]
@@ -683,4 +799,4 @@ if run_btn:
                 st.warning(f"Network could not be drawn: {e}")
 
 st.markdown("---")
-st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL. Data is fetched live and cached for 1h. Validate findings with primary sources.")
+st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL (diseases), MyGene.info (mapping), MyChem.info → DrugCentral (drugs). Data is fetched live and cached for 1h. Validate findings with primary sources.")
