@@ -1,8 +1,8 @@
 # streamlit_app.py
 # -------------------------------------------------------------
-# BioContext – Gene2Therapy
+# BioContext – Gene2Therapy (OpenTargets drugs)
 # Gene list → KEGG enrichment (counts-only) → Disease links (OpenTargets)
-# → Drug repurposing (Phase-4 filter via OpenTargets)
+# → Drug repurposing (Phase-4 filter from OpenTargets)
 # → Visualizations
 # -------------------------------------------------------------
 
@@ -16,18 +16,19 @@ from Bio import Entrez
 import plotly.express as px
 import plotly.graph_objects as go
 import networkx as nx
+from pathlib import Path
 
 # ----------------------------
 # App Config / Theming (MUST be first Streamlit call)
 # ----------------------------
 st.set_page_config(
     page_title="Gene2Therapy – BioContext",
-    page_icon="logo.png",
+    page_icon="💊",              # safe page icon (avoids missing file issues)
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ---------- Global CSS: light/dark friendly; hero fix; equal input heights ----------
+# ---------- Global CSS: dark/light friendly; hero fix; equal input heights ----------
 st.markdown(
     """
     <style>
@@ -37,9 +38,10 @@ st.markdown(
     :root{
       --bg:#0b1220; --panel:#0f172a; --glass:#0e1630cc;
       --text:#e6edf3; --muted:#b8c7ef; --sub:#9bbcff;
-      --border:#1f2a44; --border-strong:#334155;
+      --border:#1f2a44; --border-strong:#3b4b74;            /* darker, more visible in dark */
       --input-bg:#0b1328; --placeholder:#9aa8c0;
       --accent:#2563eb; --accent2:#22d3ee;
+      --hero1:#eef6ff; --hero2:#9ae6ff;                     /* brighter title gradient (dark) */
     }
     /* Light overrides */
     @media (prefers-color-scheme: light) {
@@ -49,6 +51,7 @@ st.markdown(
         --border:#e6eaf2; --border-strong:#cbd5e1;
         --input-bg:#ffffff; --placeholder:#6b7280;
         --accent:#2563eb; --accent2:#06b6d4;
+        --hero1:#1f2937; --hero2:#2563eb;                   /* title gradient (light) */
       }
     }
 
@@ -58,7 +61,7 @@ st.markdown(
       font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial; 
     }
     /* Ensure hero isn't clipped under Streamlit header */
-    .block-container { padding-top: 2.6rem; padding-bottom: 2rem; }
+    .block-container { padding-top: 3.6rem !important; padding-bottom: 2rem; }
 
     /* Sidebar */
     section[data-testid="stSidebar"]{ background: linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%); border-right:1px solid var(--border); }
@@ -67,19 +70,20 @@ st.markdown(
 
     /* Hero */
     .hero{
-      margin-top:.35rem; margin-bottom:.8rem; padding:18px 20px;
+      margin-top:.25rem; margin-bottom:.9rem; padding:18px 20px;
       border:1px solid var(--border); border-radius:18px;
       background: linear-gradient(135deg, rgba(37,99,235,.12) 0%, rgba(34,211,238,.08) 100%);
     }
     .hero h1{
-      margin:0; font-weight:800; letter-spacing:.2px; font-size:1.65rem;
-      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      margin:0; font-weight:800; letter-spacing:.2px; font-size:1.7rem;
+      background: linear-gradient(90deg, var(--hero1), var(--hero2));
       -webkit-background-clip:text; background-clip:text; color:transparent;
+      text-shadow: 0 0 10px rgba(154,230,255,.15);          /* extra pop on dark */
     }
     .hero p{ margin:.25rem 0 0 0; color:var(--sub); }
 
     /* Cards */
-    .card{ background: var(--glass); border:1.5px solid var(--border-strong); border-radius:18px; padding:18px; margin-bottom:14px; box-shadow:0 10px 26px rgba(0,0,0,.12); }
+    .card{ background: var(--glass); border:2px solid var(--border-strong); border-radius:18px; padding:18px; margin-bottom:14px; box-shadow:0 10px 26px rgba(0,0,0,.12); }
     .section-title{ font-weight:700; margin:0 0 .5rem 0; display:flex; align-items:center; gap:.5rem; font-size:1.05rem; }
     .section-title .icon{ color:var(--accent); }
 
@@ -88,16 +92,16 @@ st.markdown(
     .stTextInput>div>div>input,
     .stTextArea>div>textarea,
     .stSelectbox>div>div>div{
-      background:var(--input-bg)!important; border:1.5px solid var(--border-strong)!important; color:var(--text)!important; border-radius:12px;
+      background:var(--input-bg)!important; border:2px solid var(--border-strong)!important; color:var(--text)!important; border-radius:12px;
     }
     .stTextInput input::placeholder, .stTextArea textarea::placeholder{ color:var(--placeholder)!important; opacity:1; }
 
     /* File uploader + textarea: equal height & visible borders */
     div[data-testid="stFileUploaderDropzone"]{
-      min-height:150px; display:flex; align-items:center; border-radius:14px;
-      background:var(--input-bg)!important; border:1.5px dashed var(--border-strong)!important;
+      min-height:140px; display:flex; align-items:center; border-radius:14px;
+      background:var(--input-bg)!important; border:2px dashed var(--border-strong)!important;
     }
-    .stTextArea textarea{ min-height:150px; max-height:150px; }
+    .stTextArea textarea{ min-height:140px; max-height:140px; }
 
     /* Buttons */
     .stButton>button{
@@ -110,7 +114,7 @@ st.markdown(
     /* Tabs and tables */
     .stTabs [data-baseweb="tab"] { font-weight:700; color:var(--sub); }
     .stTabs [aria-selected="true"] { color:var(--text); border-bottom:2px solid var(--accent); }
-    .stDataFrame{ border:1.5px solid var(--border-strong); border-radius:12px; overflow:hidden; }
+    .stDataFrame{ border:2px solid var(--border-strong); border-radius:12px; overflow:hidden; }
 
     /* Plotly text readable in both modes */
     .js-plotly-plot .plotly .xtick text,
@@ -123,9 +127,16 @@ st.markdown(
 )
 
 # ---------- Top header / hero ----------
+def render_logo():
+    for p in ("logoo.png", "logo.png", "assets/logo.png"):
+        if Path(p).exists():
+            st.image(p, width=96)
+            return
+    st.markdown("### 💊")
+
 left, right = st.columns([1, 9])
 with left:
-    st.image("logo.png", width=96)
+    render_logo()
 with right:
     st.markdown(
         """
@@ -138,7 +149,7 @@ with right:
     )
 
 # ----------------------------
-# Helper: load genes from any supported input
+# Helpers
 # ----------------------------
 def load_genes_from_any(uploaded_file) -> list[str]:
     """
@@ -165,7 +176,6 @@ def load_genes_from_any(uploaded_file) -> list[str]:
                 break
         return out
 
-    # Try dataframe-like formats first
     try:
         if name.endswith((".csv", ".csv.gz")):
             df = pd.read_csv(uploaded_file, compression="infer")
@@ -187,9 +197,8 @@ def load_genes_from_any(uploaded_file) -> list[str]:
                 target_col = df.columns[0]
             return _clean_series_to_genes(df[target_col])
     except Exception:
-        pass  # fall back to plain text parsing
+        pass
 
-    # Plain text list
     try:
         try:
             uploaded_file.seek(0)
@@ -455,7 +464,7 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
     return pd.DataFrame(columns=["gene", "target", "drug_id", "drug_name", "phase", "moa", "diseases"])
 
 # ----------------------------
-# UI – Inputs (single clean card; no extra block above)
+# UI – Inputs (single clean card)
 # ----------------------------
 with st.container():
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -482,7 +491,7 @@ with st.container():
         manual_input = st.text_area(
             "Or paste gene symbols here (comma, space, or newline separated):",
             placeholder="e.g. TP53, BRCA1, EGFR, MYC",
-            height=150,  # equal to uploader (CSS enforces)
+            height=140,  # same visual height as uploader (CSS enforces)
         )
 
     # ---- Drug filters (applied in the Drug Suggestions tab)
