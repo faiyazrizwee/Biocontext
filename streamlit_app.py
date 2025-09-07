@@ -32,18 +32,31 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
-    /* Tokens (dark default) */
+    /* ---- Tokens (DARK DEFAULT — non-blue) ---- */
     :root{
-      --bg:#0b1220; --panel:#0f172a; --glass:#0e1630cc;
-      --text:#e6edf3; --muted:#b8c7ef; --sub:#9bbcff;
-      --border:#1f2a44; --border-strong:#3b4b74;            /* darker, more visible in dark */
-      --input-bg:#0b1328; --placeholder:#9aa8c0;
-      --accent:#2563eb; --accent2:#22d3ee;
-      --hero1:#eef6ff; --hero2:#9ae6ff;                     /* brighter title gradient (dark) */
+      --bg:#0b0f14;             /* charcoal */
+      --panel:#111827;          /* slate-900 */
+      --glass:#0f1626cc;
+      --text:#e5e7eb;           /* zinc-200 */
+      --muted:#a3a8b3;          /* neutral hint */
+      --sub:#94a3b8;            /* slate-400 */
+      --border:#1f2937;         /* slate-800 */
+      --border-strong:#334155;  /* slate-700 */
+      --input-bg:#0b1220;
+      --placeholder:#94a3b8;
+
+      /* new accents (no blue) */
+      --accent:#10b981;   /* emerald */
+      --accent2:#f59e0b;  /* amber */
+
+      /* title gradient for dark */
+      --hero1:#bbf7d0;    /* green-200 */
+      --hero2:#fde68a;    /* amber-300 */
     }
-    /* Light overrides */
+
+    /* ---- Light overrides (unchanged) ---- */
     @media (prefers-color-scheme: light) {
       :root{
         --bg:#f7f8fb; --panel:#ffffff; --glass:#ffffffea;
@@ -51,80 +64,85 @@ st.markdown(
         --border:#e6eaf2; --border-strong:#cbd5e1;
         --input-bg:#ffffff; --placeholder:#6b7280;
         --accent:#2563eb; --accent2:#06b6d4;
-        --hero1:#1f2937; --hero2:#2563eb;                   /* title gradient (light) */
+        --hero1:#1f2937; --hero2:#2563eb;
       }
     }
 
-    .stApp { 
-      background: radial-gradient(1400px 700px at 10% -10%, rgba(37,99,235,.10) 0%, var(--bg) 45%) fixed; 
-      color: var(--text); 
-      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial; 
+    /* App background: soft emerald vignette (no blue) */
+    .stApp{
+      background: radial-gradient(1400px 700px at 10% -10%, rgba(16,185,129,.10) 0%, var(--bg) 46%) fixed;
+      color:var(--text);
+      font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Ubuntu,'Helvetica Neue',Arial;
     }
-    /* Ensure hero isn't clipped under Streamlit header */
-    .block-container { padding-top: 3.6rem !important; padding-bottom: 2rem; }
+
+    /* Keep hero away from header */
+    .block-container{ padding-top:3.6rem!important; padding-bottom:2rem; }
 
     /* Sidebar */
-    section[data-testid="stSidebar"]{ background: linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%); border-right:1px solid var(--border); }
-    .sidebar-title{font-weight:700; font-size:1.05rem; margin-bottom:.25rem;}
+    section[data-testid="stSidebar"]{
+      background:linear-gradient(180deg,var(--panel) 0%, var(--bg) 100%);
+      border-right:1px solid var(--border);
+    }
+    .sidebar-title{font-weight:700;font-size:1.05rem;margin-bottom:.25rem;}
     .sidebar-tip{color:var(--muted);}
 
     /* Hero */
     .hero{
-      margin-top:.25rem; margin-bottom:.9rem; padding:18px 20px;
-      border:1px solid var(--border); border-radius:18px;
-      background: linear-gradient(135deg, rgba(37,99,235,.12) 0%, rgba(34,211,238,.08) 100%);
+      margin-top:.25rem;margin-bottom:.9rem;padding:18px 20px;
+      border:1px solid var(--border);border-radius:18px;
+      background:linear-gradient(135deg, rgba(16,185,129,.12) 0%, rgba(245,158,11,.10) 100%);
     }
     .hero h1{
-      margin:0; font-weight:800; letter-spacing:.2px; font-size:1.7rem;
-      background: linear-gradient(90deg, var(--hero1), var(--hero2));
-      -webkit-background-clip:text; background-clip:text; color:transparent;
-      text-shadow: 0 0 10px rgba(154,230,255,.15);          /* extra pop on dark */
+      margin:0;font-weight:800;letter-spacing:.2px;font-size:1.7rem;
+      background:linear-gradient(90deg,var(--hero1),var(--hero2));
+      -webkit-background-clip:text;background-clip:text;color:transparent;
+      text-shadow:0 0 10px rgba(187,247,208,.15);
     }
-    .hero p{ margin:.25rem 0 0 0; color:var(--sub); }
+    .hero p{margin:.25rem 0 0 0;color:var(--sub);}
 
     /* Cards */
-    .card{ background: var(--glass); border:2px solid var(--border-strong); border-radius:18px; padding:18px; margin-bottom:14px; box-shadow:0 10px 26px rgba(0,0,0,.12); }
-    .section-title{ font-weight:700; margin:0 0 .5rem 0; display:flex; align-items:center; gap:.5rem; font-size:1.05rem; }
-    .section-title .icon{ color:var(--accent); }
+    .card{background:var(--glass);border:2px solid var(--border-strong);border-radius:18px;padding:18px;margin-bottom:14px;box-shadow:0 10px 26px rgba(0,0,0,.12);}
+    .section-title{font-weight:700;margin:0 0 .5rem 0;display:flex;align-items:center;gap:.5rem;font-size:1.05rem;}
+    .section-title .icon{color:var(--accent);}
 
     /* Inputs */
-    label{ font-weight:600; color:var(--text); }
+    label{font-weight:600;color:var(--text);}
     .stTextInput>div>div>input,
     .stTextArea>div>textarea,
     .stSelectbox>div>div>div{
-      background:var(--input-bg)!important; border:2px solid var(--border-strong)!important; color:var(--text)!important; border-radius:12px;
+      background:var(--input-bg)!important;border:2px solid var(--border-strong)!important;color:var(--text)!important;border-radius:12px;
     }
-    .stTextInput input::placeholder, .stTextArea textarea::placeholder{ color:var(--placeholder)!important; opacity:1; }
+    .stTextInput input::placeholder,.stTextArea textarea::placeholder{color:var(--placeholder)!important;opacity:1;}
 
-    /* File uploader + textarea: equal height & visible borders */
+    /* File uploader + textarea equal height */
     div[data-testid="stFileUploaderDropzone"]{
-      min-height:140px; display:flex; align-items:center; border-radius:14px;
-      background:var(--input-bg)!important; border:2px dashed var(--border-strong)!important;
+      min-height:140px;display:flex;align-items:center;border-radius:14px;
+      background:var(--input-bg)!important;border:2px dashed var(--border-strong)!important;
     }
-    .stTextArea textarea{ min-height:140px; max-height:140px; }
+    .stTextArea textarea{min-height:140px;max-height:140px;}
 
-    /* Buttons */
+    /* Buttons (emerald → amber) */
     .stButton>button{
-      border-radius:12px; font-weight:700; padding:.6rem 1rem;
-      background: linear-gradient(90deg, var(--accent), var(--accent2)); color:#ffffff; border:none;
-      box-shadow:0 10px 20px rgba(37,99,235,.20);
+      border-radius:12px;font-weight:700;padding:.6rem 1rem;
+      background:linear-gradient(90deg,var(--accent),var(--accent2));color:#ffffff;border:none;
+      box-shadow:0 10px 20px rgba(16,185,129,.20);
     }
-    .stButton>button:disabled{ background:linear-gradient(90deg,#94a3b8,#64748b); color:#e5e7eb; box-shadow:none; }
+    .stButton>button:disabled{background:linear-gradient(90deg,#94a3b8,#64748b);color:#e5e7eb;box-shadow:none;}
 
-    /* Tabs and tables */
-    .stTabs [data-baseweb="tab"] { font-weight:700; color:var(--sub); }
-    .stTabs [aria-selected="true"] { color:var(--text); border-bottom:2px solid var(--accent); }
-    .stDataFrame{ border:2px solid var(--border-strong); border-radius:12px; overflow:hidden; }
+    /* Tabs & tables */
+    .stTabs [data-baseweb="tab"]{font-weight:700;color:var(--sub);}
+    .stTabs [aria-selected="true"]{color:var(--text);border-bottom:2px solid var(--accent);}
+    .stDataFrame{border:2px solid var(--border-strong);border-radius:12px;overflow:hidden;}
 
-    /* Plotly text readable in both modes */
+    /* Plotly text readable in both modes (incl. Sankey) */
     .js-plotly-plot .plotly .xtick text,
     .js-plotly-plot .plotly .ytick text,
     .js-plotly-plot .plotly .legend text,
     .js-plotly-plot .plotly .gtitle,
     .js-plotly-plot .plotly .sankey text,
     .js-plotly-plot .plotly .sankey .node text{
-      fill: var(--text) !important;
-     font-weight: 700 !important;}
+      fill:var(--text)!important;font-weight:700!important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
