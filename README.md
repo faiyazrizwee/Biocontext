@@ -38,18 +38,8 @@ conda activate biocontext
 
 ## 🖥️ Usage
 
-### 1. Command-line mode
-Run with a gene list:
 
-```bash
-python main.py gene_list.csv
-```
-
-Results will be saved in `data/gene_metadata_with_kegg.csv`.
-
----
-
-### 2. Web interface (Streamlit)
+### Web interface (Streamlit)
 Launch the Streamlit app:
 
 ```bash
@@ -59,17 +49,17 @@ streamlit run streamlit_app.py
 Then open your browser at:  
 👉 http://localhost:8501  
 
-Upload your **gene list file**, select an organism, and download results.
+Upload your **gene list file** or **paste gene names**select an organism, and download results.
 
 ---
 
 ## 📂 File structure
 ```
 Biocontext/
-│── main.py              # Command-line tool
+│── main.py              # preserve code if changes occured in the streamlit_app.py by mistake.
 │── streamlit_app.py     # Streamlit web interface
 │── environment.yml      # Conda environment
-│── data/                # Example input/output data
+│── data/                # Example input/
 │   └── gene_list.txt
 │── README.md            # Project documentation
 ```

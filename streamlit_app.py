@@ -120,7 +120,11 @@ st.markdown(
     .js-plotly-plot .plotly .xtick text,
     .js-plotly-plot .plotly .ytick text,
     .js-plotly-plot .plotly .legend text,
-    .js-plotly-plot .plotly .gtitle{ fill: var(--text) !important; }
+    .js-plotly-plot .plotly .gtitle,
+    .js-plotly-plot .plotly .sankey text,
+    .js-plotly-plot .plotly .sankey .node text{
+      fill: var(--text) !important;
+     font-weight: 700 !important;}
     </style>
     """,
     unsafe_allow_html=True,
