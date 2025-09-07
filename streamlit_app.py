@@ -565,7 +565,7 @@ with st.container():
     with col_u:
         uploaded = st.file_uploader("Upload gene list - csv, tsv, txt, xlsx", type=["csv","tsv","txt","xlsx"])
     with col_p:
-        manual_input = st.text_area("Or paste gene symbols here (comma, space, or newline separated)", placeholder="e.g. TP53, BRCA1, EGFR, MYC", height=180)
+        manual_input = st.text_area("Or paste gene symbols here (comma, space, or newline separated)", placeholder="e.g. TP53, BRCA1, EGFR, MYC", height=120)
 
     st.markdown("#### Drug filters")
     opt_only_phase4 = st.checkbox("Show only approved drugs", value=True, help="Heuristic: keep drugs with ATC codes (proxy for marketed/approved).")
