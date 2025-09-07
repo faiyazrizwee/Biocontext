@@ -1,4 +1,4 @@
-# streamlit_app.py — Gene2Therapy (DrugCentral edition, polished UI)
+# streamlit_app.py — Gene2Therapy (DrugCentral, dual-mode UI)
 # -------------------------------------------------------------
 # Gene list → KEGG enrichment (counts-only)
 # → Disease links (OpenTargets)
@@ -18,7 +18,7 @@ import plotly.graph_objects as go
 import networkx as nx
 
 # =========================
-# Page config + THEME
+# Page config
 # =========================
 st.set_page_config(
     page_title="Gene2Therapy – BioContext",
@@ -27,97 +27,103 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Global CSS (dark+glass, gradient header, nicer inputs/buttons/dataframes)
+# =========================
+# THEME (dark+light, equal input heights)
+# =========================
 st.markdown(
     """
     <style>
-    /* Google font */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
+    /* ---------- Color tokens (default = DARK) ---------- */
     :root{
       --bg:#0b1220; --panel:#0e1630; --glass:#0f172aCC; --border:#1f2a44;
-      --muted:#9bbcff; --text:#e6edf3; --accent:#7dd3fc; --accent2:#60a5fa;
+      --text:#e6edf3; --muted:#b8c7ef; --sub:#9bbcff;
+      --accent:#2563eb; --accent2:#22d3ee;
       --success:#10b981; --warn:#f59e0b; --error:#ef4444;
+      --input-bg:#0b1328; --placeholder:#9aa8c0;
+    }
+    /* Light scheme overrides */
+    @media (prefers-color-scheme: light) {
+      :root{
+        --bg:#f7f8fb; --panel:#ffffff; --glass:#ffffffE6; --border:#e6eaf2;
+        --text:#0b1220; --muted:#4b5563; --sub:#475569;
+        --accent:#2563eb; --accent2:#06b6d4;
+        --input-bg:#ffffff; --placeholder:#6b7280;
+      }
     }
 
-    .stApp { background: radial-gradient(1200px 600px at 10% -10%, #0a1a44 0%, var(--bg) 50%) fixed; color: var(--text); font-family: 'Inter',system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'; }
-    .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
+    .stApp { background: radial-gradient(1400px 700px at 10% -10%, rgba(37,99,235,.10) 0%, var(--bg) 45%) fixed; color: var(--text); font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Ubuntu,Cantarell,'Helvetica Neue',Arial,'Noto Sans'; }
+    .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
 
     /* Sidebar */
-    section[data-testid="stSidebar"] { background: linear-gradient(180deg, #0a1022 0%, #0b1220 100%); border-right: 1px solid var(--border); }
-    .sidebar-title{font-weight:700; font-size: 1.1rem; margin-bottom: .25rem;}
+    section[data-testid="stSidebar"] { background: linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%); border-right: 1px solid var(--border); }
+    .sidebar-title{font-weight:700; font-size: 1.1rem; margin-bottom:.25rem;}
     .sidebar-tip{color:var(--muted);}
 
-    /* Hero header */
+    /* Hero */
     .hero{
-      margin-top: .2rem; margin-bottom: .75rem; padding: 18px 20px;
-      border: 1px solid var(--border); border-radius: 18px;
-      background: linear-gradient(135deg, rgba(96,165,250,.15) 0%, rgba(125,211,252,.08) 100%);
+      margin-top:.2rem; margin-bottom:.8rem; padding:18px 20px;
+      border:1px solid var(--border); border-radius:18px;
+      background: linear-gradient(135deg, rgba(37,99,235,.12) 0%, rgba(34,211,238,.08) 100%);
     }
     .hero h1{
-      font-weight:800; letter-spacing:.2px; margin:0;
-      background: linear-gradient(90deg, var(--accent2), var(--accent));
-      -webkit-background-clip: text; background-clip: text; color: transparent;
-      font-size: 1.65rem;
+      margin:0; font-weight:800; letter-spacing:.2px; font-size:1.65rem;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      -webkit-background-clip:text; background-clip:text; color:transparent;
     }
-    .hero p{ margin:.25rem 0 0 0; color: var(--muted); }
+    .hero p{ margin:.25rem 0 0 0; color:var(--sub); }
 
     /* Cards / sections */
-    .card{
-      background: var(--glass);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 18px 18px;
-      margin-bottom: 14px;
-      box-shadow: 0 10px 30px rgba(0,0,0,.25);
-    }
-    .section-title{
-      font-weight:700; color: var(--text); margin: 0 0 .5rem 0;
-      display:flex; align-items:center; gap:.5rem; font-size:1.05rem;
-    }
-    .section-title span.icon{opacity:.9; font-size:1.1rem; color:var(--accent);}
-    .hint{color: var(--muted);}
+    .card{ background: var(--glass); border:1px solid var(--border); border-radius:18px; padding:18px; margin-bottom:14px; box-shadow:0 10px 26px rgba(0,0,0,.18); }
+    .section-title{ font-weight:700; margin:0 0 .5rem 0; display:flex; align-items:center; gap:.5rem; font-size:1.05rem; }
+    .section-title .icon{ color:var(--accent); }
 
-    /* Inputs / buttons */
-    .stButton>button { 
-      border-radius: 12px; font-weight: 700; padding: .6rem 1rem;
-      background: linear-gradient(90deg, var(--accent2), var(--accent));
-      color:#0b1220; border: none;
-      box-shadow: 0 10px 20px rgba(96,165,250,.25);
-    }
-    .stButton>button:disabled{
-      background: linear-gradient(90deg, #334155, #1f2937); color:#94a3b8;
-      box-shadow:none;
-    }
+    /* Inputs */
+    label{ font-weight:600; color:var(--text); }
     .stTextInput>div>div>input,
     .stTextArea>div>textarea,
-    .stSelectbox>div>div>div{ 
-      background: #0b1328; border:1px solid var(--border)!important; color:var(--text);
-      border-radius:12px; 
+    .stSelectbox>div>div>div{ background:var(--input-bg)!important; border:1px solid var(--border)!important; color:var(--text)!important; border-radius:12px; }
+    .stTextInput input::placeholder, .stTextArea textarea::placeholder{ color:var(--placeholder) !important; opacity:1; }
+
+    /* File uploader — make dropzone SAME HEIGHT as text area */
+    .stFileUploader div[data-testid="stFileUploaderDropzone"]{
+      min-height: 180px; display:flex; align-items:center; border-radius:14px;
+      background:var(--input-bg)!important; border:1px dashed var(--border)!important;
     }
-    .stFileUploader>div>div { background:#0b1328; border:1px dashed var(--border); border-radius:14px; }
-    label{ font-weight:600; }
+    .stTextArea textarea{ min-height:180px; }
+
+    /* Buttons */
+    .stButton>button{
+      border-radius:12px; font-weight:700; padding:.6rem 1rem;
+      background: linear-gradient(90deg, var(--accent), var(--accent2)); color:#ffffff; border:none;
+      box-shadow:0 10px 20px rgba(37,99,235,.25);
+    }
+    .stButton>button:disabled{ background:linear-gradient(90deg,#94a3b8,#64748b); color:#e5e7eb; box-shadow:none; }
 
     /* Tabs */
-    .stTabs [data-baseweb="tab"] { font-weight:700; color:#cbd5e1; }
-    .stTabs [aria-selected="true"] { color: var(--text); border-bottom: 2px solid var(--accent); }
+    .stTabs [data-baseweb="tab"] { font-weight:700; color:var(--sub); }
+    .stTabs [aria-selected="true"] { color:var(--text); border-bottom:2px solid var(--accent); }
 
-    /* Dataframe prettiness */
-    .stDataFrame{ border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    /* DataFrame */
+    .stDataFrame{ border:1px solid var(--border); border-radius:12px; overflow:hidden; }
 
-    /* Plotly background harmonization */
-    .js-plotly-plot .plotly .main-svg{ background:transparent!important; }
+    /* Plotly: make tick labels readable in both modes */
+    .js-plotly-plot .plotly .xtick text,
+    .js-plotly-plot .plotly .ytick text,
+    .js-plotly-plot .plotly .legend text,
+    .js-plotly-plot .plotly .gtitle{ fill: var(--text) !important; }
 
     /* Footer */
-    .footer{ color:#9aa8c0; font-size:.86rem; }
+    .footer{ color:var(--muted); font-size:.86rem; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ----------------------------
+# =========================
 # HERO header
-# ----------------------------
+# =========================
 left, right = st.columns([1, 9], vertical_alignment="center")
 with left:
     st.image("logo.png", width=96)
@@ -132,24 +138,23 @@ with right:
         unsafe_allow_html=True,
     )
 
-# =========================
-# Utilities
-# =========================
-
+# Helper for Plotly (transparent bg; axis labels get CSS override above)
 def themed_bar(fig, height=560, title=None):
-    """Apply a cohesive Plotly theme."""
     fig.update_layout(
-        template="plotly_dark",
+        template="plotly",  # neutral (works under both), colors overridden via CSS
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         height=height,
         title=title or fig.layout.title.text,
-        margin=dict(l=40, r=20, t=60, b=40)
+        margin=dict(l=40, r=20, t=60, b=40),
     )
     return fig
 
+# =========================
+# Utils
+# =========================
 def _extract_uniprot_id(u):
-    """Robustly extract a UniProt accession from DrugCentral 'uniprot' (dict/list/str/None)."""
+    """Return a UniProt accession from DrugCentral 'uniprot' field (dict/list/str/None)."""
     if not u:
         return None
     if isinstance(u, dict):
@@ -165,7 +170,7 @@ def _extract_uniprot_id(u):
     return None
 
 # =========================
-# Helper: load genes
+# Load genes from any supported input
 # =========================
 def load_genes_from_any(uploaded_file) -> list[str]:
     name = (uploaded_file.name or "").lower()
@@ -181,8 +186,7 @@ def load_genes_from_any(uploaded_file) -> list[str]:
         seen, out = set(), []
         for v in vals:
             if v and v not in seen:
-                seen.add(v)
-                out.append(v)
+                seen.add(v); out.append(v)
             if len(out) >= 200:
                 break
         return out
@@ -223,18 +227,17 @@ def load_genes_from_any(uploaded_file) -> list[str]:
 # =========================
 with st.sidebar:
     st.markdown('<div class="sidebar-title">🧪 BioContext</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-tip">Gene metadata, pathway enrichment, disease links & drug repurposing</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-tip">Gene metadata, enrichment, disease links & drug repurposing</div>', unsafe_allow_html=True)
     st.markdown("---")
     st.markdown("**Tips**")
     st.markdown("• Keep gene lists modest (≤100)\n\n• Re-run if APIs rate-limit (cache = 1h)")
 
 # =========================
-# Caching helpers – KEGG / NCBI
+# KEGG / NCBI
 # =========================
 @st.cache_data(ttl=3600)
 def kegg_get(path: str) -> str:
-    r = requests.get(f"https://rest.kegg.jp{path}", timeout=30)
-    r.raise_for_status()
+    r = requests.get(f"https://rest.kegg.jp{path}", timeout=30); r.raise_for_status()
     return r.text
 
 @st.cache_data(ttl=3600)
@@ -332,24 +335,18 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 # =========================
-# DrugCentral via MyChem (no auth)
+# DrugCentral via MyChem
 # =========================
-MYGENE_BASE = "https://mygene.info"
-MYCHEM_BASE = "https://mychem.info"
-MYGENE_URL = f"{MYGENE_BASE}/v3/query"
-MYCHEM_URL = f"{MYCHEM_BASE}/v1/query"
+MYGENE_BASE = "https://mygene.info"; MYCHEM_BASE = "https://mychem.info"
+MYGENE_URL = f"{MYGENE_BASE}/v3/query"; MYCHEM_URL = f"{MYCHEM_BASE}/v1/query"
 
 @st.cache_data(ttl=300)
 def _net_status() -> dict:
     out = {"mygene": None, "mychem": None, "example_hits": None}
-    try:
-        out["mygene"] = requests.get(f"{MYGENE_BASE}/status", timeout=10).status_code
-    except Exception as e:
-        out["mygene"] = f"error: {e}"
-    try:
-        out["mychem"] = requests.get(f"{MYCHEM_BASE}/status", timeout=10).status_code
-    except Exception as e:
-        out["mychem"] = f"error: {e}"
+    try: out["mygene"] = requests.get(f"{MYGENE_BASE}/status", timeout=10).status_code
+    except Exception as e: out["mygene"] = f"error: {e}"
+    try: out["mychem"] = requests.get(f"{MYCHEM_BASE}/status", timeout=10).status_code
+    except Exception as e: out["mychem"] = f"error: {e}"
     try:
         r = requests.get(MYCHEM_URL, params={"q":"imatinib","size":1}, timeout=10)
         out["example_hits"] = r.json().get("total", None)
@@ -545,7 +542,7 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
     return pd.DataFrame(columns=["gene","target","disease_id","disease_name","association_score"])
 
 # =========================
-# UI – Inputs
+# UI — Inputs
 # =========================
 with st.container():
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -564,11 +561,11 @@ with st.container():
     organism_entrez = organisms[org_label]["entrez"]
     kegg_org_prefix = organisms[org_label]["kegg"]
 
-    col_u, col_p = st.columns([1,1])
+    col_u, col_p = st.columns(2)
     with col_u:
         uploaded = st.file_uploader("Upload gene list - csv, tsv, txt, xlsx", type=["csv","tsv","txt","xlsx"])
     with col_p:
-        manual_input = st.text_area("Or paste gene symbols here", placeholder="e.g. TP53, BRCA1, EGFR, MYC")
+        manual_input = st.text_area("Or paste gene symbols here (comma, space, or newline separated)", placeholder="e.g. TP53, BRCA1, EGFR, MYC", height=180)
 
     st.markdown("#### Drug filters")
     opt_only_phase4 = st.checkbox("Show only approved drugs", value=True, help="Heuristic: keep drugs with ATC codes (proxy for marketed/approved).")
@@ -584,9 +581,9 @@ with st.container():
         genes_from_input = load_genes_from_any(uploaded)
 
     run_btn = st.button("▶️ Analyze", type="primary", disabled=(not genes_from_input or not email))
-    st.markdown("</div>", unsafe_allow_html=True)  # /card
+    st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown("")  # spacing
+st.markdown("")
 
 # =========================
 # Tabs
@@ -615,10 +612,8 @@ if run_btn:
         with st.spinner("Querying NCBI and KEGG..."):
             df_meta, pathway_to_genes = fetch_gene_metadata_and_kegg(genes, organism_entrez, kegg_org_prefix, progress=progress)
         st.success("Metadata retrieval complete.")
-
         if not df_meta.empty:
-            show_meta = df_meta.copy()
-            show_meta.insert(0, "#", range(1, len(show_meta) + 1))
+            show_meta = df_meta.copy(); show_meta.insert(0, "#", range(1, len(show_meta) + 1))
             st.dataframe(show_meta, use_container_width=True, hide_index=True)
             st.download_button("⬇️ Download metadata CSV", data=df_meta.to_csv(index=False).encode("utf-8"),
                                file_name="gene_metadata_with_kegg.csv", mime="text/csv")
@@ -626,18 +621,16 @@ if run_btn:
             st.info("No metadata found for the provided gene list.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # -------- Step 2: Enrichment (counts-only) --------
+    # -------- Step 2: Enrichment --------
     with enrich_tab:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown('<div class="section-title"><span class="icon">📊</span>Step 2 — Pathway Enrichment (counts-only)</div>', unsafe_allow_html=True)
         with st.spinner("Summarizing pathway hits..."):
             df_enrich = compute_enrichment_counts_only(pathway_to_genes)
-
         if df_enrich.empty:
             st.info("No pathways found for enrichment with the current gene list.")
         else:
-            show = df_enrich.copy()
-            show.insert(0, "#", range(1, len(show) + 1))
+            show = df_enrich.copy(); show.insert(0, "#", range(1, len(show) + 1))
             st.dataframe(show, use_container_width=True, hide_index=True)
             st.download_button("⬇️ Download enrichment CSV (counts-only)",
                                data=df_enrich.to_csv(index=False).encode("utf-8"),
@@ -664,11 +657,9 @@ if run_btn:
             agg = (
                 df_dis.groupby(["disease_id", "disease_name"])
                 .agg(n_genes=("gene", lambda s: len(set(s))), max_score=("association_score", "max"))
-                .reset_index()
-                .sort_values(["n_genes", "max_score"], ascending=[False, False])
+                .reset_index().sort_values(["n_genes","max_score"], ascending=[False, False])
             )
-            showD = agg.copy()
-            showD.insert(0, "#", range(1, len(showD) + 1))
+            showD = agg.copy(); showD.insert(0, "#", range(1, len(showD) + 1))
             st.dataframe(showD, use_container_width=True, hide_index=True)
 
             st.download_button("⬇️ Download disease associations (per gene)",
@@ -686,7 +677,7 @@ if run_btn:
                 pass
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # -------- Step 4: Drug Suggestions (DrugCentral) --------
+    # -------- Step 4: Drug Suggestions --------
     with drug_tab:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown('<div class="section-title"><span class="icon">💊</span>Step 4 — Drug Suggestions (DrugCentral)</div>', unsafe_allow_html=True)
@@ -711,7 +702,7 @@ if run_btn:
                 st.info("All hits were investigational (no ATC). Uncheck the filter to see them.")
             else:
                 def agg_unique(series):
-                    vals = [v for v in series if v]; parts=set()
+                    vals=[v for v in series if v]; parts=set()
                     for v in vals: parts.update(str(v).split("; "))
                     return "; ".join(sorted({p for p in parts if p})) if parts else None
 
@@ -728,8 +719,7 @@ if run_btn:
                     ).reset_index()
                 ).sort_values(by=["approved","best_potency_nM","drug_name"], ascending=[False,True,True])
 
-                showRx = drug_sum.copy()
-                showRx.insert(0, "#", range(1, len(showRx) + 1))
+                showRx = drug_sum.copy(); showRx.insert(0, "#", range(1, len(showRx) + 1))
                 cols_order = [c for c in ["#","drug_name","approved","best_potency_nM","actions","act_types","atc_level5","routes","genes","uniprots"] if c in showRx.columns]
                 st.dataframe(showRx[cols_order], use_container_width=True, hide_index=True)
 
@@ -822,6 +812,6 @@ if run_btn:
 st.markdown("---")
 st.markdown(
     '<div class="footer">APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL (diseases), '
-    'MyGene.info (mapping), MyChem.info → DrugCentral (drugs). Data is fetched live and cached for 1h.</div>',
+    'MyGene.info (mapping), MyChem.info → DrugCentral (drugs). Cache = 1h.</div>',
     unsafe_allow_html=True
 )
