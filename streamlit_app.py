@@ -467,7 +467,7 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
 # UI – Inputs (single clean card)
 # ----------------------------
 with st.container():
-    st.markdown('<div class="card">', unsafe_allow_html=True)
+    #st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown('<div class="section-title"><span class="icon">🔧</span>Input</div>', unsafe_allow_html=True)
     st.markdown('<div class="hint">Upload a gene list (CSV/TSV/XLSX/TXT) or paste genes, then explore annotations, enrichment, diseases, and drugs.</div>', unsafe_allow_html=True)
 
