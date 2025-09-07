@@ -101,7 +101,7 @@ st.markdown(
       min-height:140px; display:flex; align-items:center; border-radius:14px;
       background:var(--input-bg)!important; border:2px dashed var(--border-strong)!important;
     }
-    .stTextArea textarea{ min-height:12px; max-height:120; }
+    .stTextArea textarea{ min-height:120px; max-height:120px; }
 
     /* Buttons */
     .stButton>button{
