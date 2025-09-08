@@ -35,7 +35,7 @@ st.markdown(
 
     :root{
       --bg:#0F0F0F;
-      --panel:#7A7A7A;         /* sidebar background */
+      --panel:#555555;         /* sidebar background */
       --glass:#141414;
 
       --text:#FFFFFF;          /* global text */
