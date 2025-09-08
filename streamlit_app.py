@@ -116,37 +116,48 @@ st.markdown(
         /* Optional: placeholder contrast on dark */
     .stTextArea textarea::placeholder { color: #9AA0A6 !important; }
 
-        /* Paint the dropzone and all inner wrappers the same color */
+        /* ==== FILE UPLOADER: color + click behavior ==== */
+
+    /* 1) Paint the dropzone and ALL inner layers #343A40 */
     .stFileUploader [data-testid="stFileUploaderDropzone"],
-    .stFileUploader [data-testid="stFileUploaderDropzone"] > div,
-    .stFileUploader [data-testid="stFileUploaderDropzone"] > div > div {
-      background: #343A40 !important;        /* override any 'background' shorthand */
-      background-color: #343A40 !important;  /* belt-and-suspenders */
+    .stFileUploader [data-testid="stFileUploaderDropzone"] *,
+    .stFileUploader [data-testid="stFileUploaderDropzone"]::before,
+    .stFileUploader [data-testid="stFileUploaderDropzone"]::after {
+      background: #343A40 !important;
+      background-color: #343A40 !important;
+      box-shadow: none !important;
+      color: #FFFFFF !important;                 /* keep text/icons readable */
+    }
+
+        /* Preserve the dashed border and rounding on the outer shell */
+    .stFileUploader [data-testid="stFileUploaderDropzone"] {
       border: 1.5px dashed #3A3A3A !important;
       border-radius: 12px !important;
-      box-shadow: none !important;
     }
 
-        /* Text & icons inside the zone */
-    .stFileUploader [data-testid="stFileUploaderDropzone"] * {
-      color: #FFFFFF !important;
-    }
-
-        /* The reason the whole card is clickable: an overlaid <input type="file"> and/or label.
-       Disable them so only the explicit button works. */
-    .stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"],
-    .stFileUploader [data-testid="stFileUploaderDropzone"] label {
-      pointer-events: none !important;
+        /* 2) Make ONLY "Browse files" clickable
+          BaseWeb uses a full-width interactive surface (label / role=button).
+          Kill its pointer events, but re-enable for the real <button>. */
+    .stFileUploader [data-testid="stFileUploaderDropzone"] [role="button"],
+    .stFileUploader [data-testid="stFileUploaderDropzone"] label,
+    .stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"] {
+      pointer-events: none !important;           /* disable clicks on the big area */
       cursor: default !important;
     }
 
-        /* Re-enable interactivity ONLY for the “Browse files” button */
-    .stFileUploader [data-testid="stFileUploaderDropzone"] button {
+        /* Re-enable just the Browse button (and its children) */
+    .stFileUploader [data-testid="stFileUploaderDropzone"] button,
+    .stFileUploader [data-testid="stFileUploaderDropzone"] button * {
       pointer-events: auto !important;
       cursor: pointer !important;
-      position: relative;   /* ensure it sits above the disabled overlay */
+      position: relative;                        /* make sure it sits above */
       z-index: 10;
-    }    
+    }
+
+        /* Optional: ensure the dropzone doesn’t look hoverable */
+    .stFileUploader [data-testid="stFileUploaderDropzone"]:hover {
+      filter: none !important;
+    }
 
 
         /* ===== Organism SELECT ===== */
