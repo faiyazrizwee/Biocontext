@@ -28,36 +28,54 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ---------- Global CSS (light = default, dark in media query). Also: no page gradient ----------
+# ---------- Global CSS (light = default; dark uses your 3 colors) ----------
 st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
-    /* ===== LIGHT Theme ===== */
+    /* brand tokens provided */
+    :root{
+      --black-bean:#3b0d11;
+      --battleship-gray:#999999;
+      --night:#0b0b0b;
+    }
+
+    /* ===== LIGHT Theme (unchanged) ===== */
     :root{
       --bg:#f7f8fb; --panel:#ffffff; --glass:#ffffffea;
       --text:#0b1220; --muted:#4b5563; --sub:#475569;
       --border:#e6eaf2; --border-strong:#cbd5e1;
-      --input-bg:#ffffff; --placeholder:#ffffff;
+      --input-bg:#ffffff; --placeholder:#ffffff;   /* kept as you had it */
       --accent:#2563eb; --accent2:#06b6d4;
       --hero1:#1f2937; --hero2:#2563eb;
     }
 
-    /* ===== DARK: only when system prefers dark ===== */
+    /* ===== DARK Theme (your three colors + white text) ===== */
     @media (prefers-color-scheme: dark) {
       :root{
-        --bg:#0e0f13; --panel:#0b0c10; --glass:#13151a;
-        --text:#ececf1; --muted:#c7c9d1; --sub:#aeb3bc;
-        --border:#22252c; --border-strong:#323742;
-        --input-bg:#1f2126; --placeholder:#9aa0a6;
-        --accent:#10a37f; --accent2:#1cc191;
-        --hero1:#f0f2f6; --hero2:#9be8d3;
+        --bg:var(--night);
+        --panel:var(--night);
+        --glass:var(--night);
+        --text:#ffffff;
+        --muted:var(--battleship-gray);
+        --sub:var(--battleship-gray);
+        /* borders derived from battleship-gray with alpha */
+        --border:#99999933;
+        --border-strong:#99999966;
+        --input-bg:var(--night);
+        --placeholder:var(--battleship-gray);
+        /* use black-bean for accents/icons; button gradient set explicitly below */
+        --accent:var(--black-bean);
+        --accent2:var(--black-bean);
+        /* title gradient hues for hero text */
+        --hero1:#ffffff;
+        --hero2:var(--battleship-gray);
       }
     }
 
     .stApp {
-      background: var(--bg);            /* removed radial gradient */
+      background: var(--bg);
       color: var(--text);
       font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial;
     }
@@ -80,7 +98,10 @@ st.markdown(
       background: linear-gradient(135deg, rgba(37,99,235,.10) 0%, rgba(34,211,238,.06) 100%);
     }
     @media (prefers-color-scheme: dark){
-      .hero{ background: linear-gradient(135deg, rgba(16,163,127,.12) 0%, rgba(28,193,145,.08) 100%); }
+      .hero{
+        /* soft wash using your colors */
+        background: linear-gradient(135deg, rgba(59,13,17,.30) 0%, rgba(153,153,153,.12) 100%);
+      }
     }
     .hero h1{
       margin:0; font-weight:800; letter-spacing:.2px; font-size:1.7rem;
@@ -88,6 +109,10 @@ st.markdown(
       -webkit-background-clip:text; background-clip:text; color:transparent;
     }
     .hero p{ margin:.25rem 0 0 0; color:var(--sub); }
+
+    /* Section titles */
+    .section-title{ font-weight:700; margin:0 0 .5rem 0; display:flex; align-items:center; gap:.5rem; font-size:1.05rem; }
+    .section-title .icon{ color:var(--accent); }
 
     /* Inputs */
     label{ font-weight:600; color:var(--text); }
@@ -102,7 +127,7 @@ st.markdown(
       color:var(--placeholder)!important; opacity:1;
     }
 
-    /* File uploader + textarea: equal height & visible borders */
+    /* File uploader + textarea: visible borders */
     div[data-testid="stFileUploaderDropzone"]{
       min-height:140px; display:flex; align-items:center; border-radius:14px;
       background:var(--input-bg)!important;
@@ -110,12 +135,13 @@ st.markdown(
     }
     .stTextArea textarea{ min-height:80px; max-height:80px; }
 
-    /* Buttons */
+    /* Buttons — keep Analyze identical to light mode across themes */
     .stButton>button{
       border-radius:12px; font-weight:700; padding:.6rem 1rem;
-      background: linear-gradient(90deg, var(--accent), var(--accent2)); color:#ffffff; border:none;
+      background: linear-gradient(90deg, #2563eb, #06b6d4) !important;  /* fixed gradient */
+      color:#ffffff; border:none;
     }
-    .stButton>button:disabled{ background:linear-gradient(90deg,#94a3b8,#64748b); color:#e5e7eb; }
+    .stButton>button:disabled{ background:linear-gradient(90deg,#94a3b8,#64748b) !important; color:#e5e7eb; }
 
     /* Tabs & tables */
     .stTabs [data-baseweb="tab"] { font-weight:700; color:var(--sub); }
