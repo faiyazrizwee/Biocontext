@@ -114,20 +114,30 @@ st.markdown(
         /* Optional: placeholder contrast on dark */
     .stTextArea textarea::placeholder { color: #9AA0A6 !important; }
 
-        /* --- File uploader: paint ALL layers the same --- */
+        /* ===== File uploader (dropzone) — force #343A40 on every wrapper ===== */
     div[data-testid="stFileUploaderDropzone"],
     div[data-testid="stFileUploaderDropzone"] > div,
-    div[data-testid="stFileUploaderDropzone"] > div > div {
-      background-color: #343A40 !important;   /* use background-color to beat inner rule */
+    div[data-testid="stFileUploaderDropzone"] > div > div,
+    div[data-testid="stFileUploaderDropzone"] label,
+    div[data-testid="stFileUploaderDropzone"] section,
+    div[data-testid="stFileUploaderDropzone"] *[class^="st-emotion-cache-"] {
+      background-color: #343A40 !important;
       box-shadow: none !important;
+      border-radius: 12px !important;
     }
 
     div[data-testid="stFileUploaderDropzone"] {
       border: 1.5px dashed var(--border-strong) !important;
     }
 
-        /* Make sure text/icons stay light */
+        /* Keep the “Browse files” button styled separately */
+    div[data-testid="stFileUploaderDropzone"] button {
+      background: initial !important;
+    }
+
+        /* Make text/icons inside the dropzone light */
     .stFileUploader * { color: var(--text) !important; }
+
 
         /* ===== Organism SELECT ===== */
     .stSelectbox [data-baseweb="select"] > div {          /* control surface */
