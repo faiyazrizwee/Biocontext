@@ -55,7 +55,7 @@ st.markdown(
       --hero2:#B3B3B3;
     }
 
-    /* App surface */
+        /* App surface */
     .stApp {
       background: var(--bg);
       color: var(--text);
@@ -63,7 +63,7 @@ st.markdown(
     }
     .block-container { padding-top: 3.6rem !important; padding-bottom: 2rem; }
 
-    /* Sidebar */
+        /* Sidebar */
     section[data-testid="stSidebar"]{
       background: var(--panel);
       color: var(--text);
@@ -73,7 +73,7 @@ st.markdown(
     .sidebar-title{font-weight:700; font-size:1.05rem; margin-bottom:.25rem;}
     .sidebar-tip{color:var(--text); opacity:.85;}
 
-    /* Hero */
+        /* Hero */
     .hero{
       margin-top:.25rem; margin-bottom:.9rem; padding:18px 20px;
       border:1px solid var(--border); border-radius:18px;
@@ -86,12 +86,12 @@ st.markdown(
     }
     .hero p{ margin:.25rem 0 0 0; color:var(--sub); }
 
-    /* Ensure markdown text/headers are white */
+        /* Ensure markdown text/headers are white */
     .stMarkdown, .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
       color: var(--text);
     }
 
-    /* Inputs (text, select, textarea) */
+        /* Inputs (text, select, textarea) */
     label{ font-weight:600; color:var(--text); }
     .stTextInput>div>div>input,
 
@@ -104,30 +104,30 @@ st.markdown(
       box-shadow: none !important;
     }
 
-    /* The actual <textarea> */
+        /* The actual <textarea> */
     .stTextArea textarea,
     .stTextArea [data-baseweb="textarea"] > textarea {
       background-color: #343A40 !important;
       color: var(--text) !important;
     }
 
-    /* Optional: placeholder contrast on dark */
+        /* Optional: placeholder contrast on dark */
     .stTextArea textarea::placeholder { color: #9AA0A6 !important; }
 
-        /* ===== File uploader (dropzone) ===== */
-    div[data-testid="stFileUploaderDropzone"] {
-      background-color: #343A40 !important;
-      border: 1.5px dashed var(--border-strong) !important;
+        /* --- File uploader: paint ALL layers the same --- */
+    div[data-testid="stFileUploaderDropzone"],
+    div[data-testid="stFileUploaderDropzone"] > div,
+    div[data-testid="stFileUploaderDropzone"] > div > div {
+      background-color: #343A40 !important;   /* use background-color to beat inner rule */
       box-shadow: none !important;
     }
-    /* Its first child sometimes adds another layer — neutralise it */
-    div[data-testid="stFileUploaderDropzone"] > div {
-      background: transparent !important;
-      box-shadow: none !important;
-    }
-    /* Text/icons inside the dropzone */
-    .stFileUploader * { color: var(--text) !important; }
 
+    div[data-testid="stFileUploaderDropzone"] {
+      border: 1.5px dashed var(--border-strong) !important;
+    }
+
+        /* Make sure text/icons stay light */
+    .stFileUploader * { color: var(--text) !important; }
 
         /* ===== Organism SELECT ===== */
     .stSelectbox [data-baseweb="select"] > div {          /* control surface */
