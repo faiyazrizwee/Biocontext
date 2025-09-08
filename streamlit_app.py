@@ -33,196 +33,156 @@ st.markdown(
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
-    :root{
-      --bg:#212529;
-      --panel:#343A40;         /* sidebar background */
-      --glass:#141414;
+    /* =======================
+   DEFAULT = DARK TOKENS
+   ======================= */
+:root{
+  --bg:#212529;
+  --panel:#343A40;
+  --glass:#141414;
 
-      --text:#FFFFFF;          /* global text */
-      --muted:#E5E7EB;         /* helper text */
-      --sub:#D1D5DB;           /* subheads, unselected tabs */
+  --text:#FFFFFF;
+  --muted:#E5E7EB;
+  --sub:#D1D5DB;
 
-      --border:#252525;
-      --border-strong:#3A3A3A;
+  --border:#252525;
+  --border-strong:#3A3A3A;
 
-      --input-bg:#343A40;      /* inputs, textareas, selects, uploader */
-      --placeholder:#343A40;   /* visible on dark */
+  --input-bg:#343A40;
+  --placeholder:#9AA0A6;
 
-      --btn1:#0f766e;
-      --btn2:#10b981;
-      --btn1-hover:#115e59; --btn2-hover:#059669;
-      --btn1-active:#0b534b; --btn2-active:#047857;
+  /* Analyze button (dark) */
+  --btn1:#0f766e;
+  --btn2:#10b981;
+  --btn1-hover:#115e59; --btn2-hover:#059669;
+  --btn1-active:#0b534b; --btn2-active:#047857;
 
-      --hero1:#FFFFFF;         /* hero title gradient (subtle) */
-      --hero2:#B3B3B3;
-    }
+  --hero1:#FFFFFF;
+  --hero2:#B3B3B3;
+}
 
-        /* App surface */
-    .stApp {
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial;
-    }
-    .block-container { padding-top: 3.6rem !important; padding-bottom: 2rem; }
+/* =======================
+   LIGHT THEME (supports both OS pref & Streamlit toggle)
+   ======================= */
+@media (prefers-color-scheme: light){
+  :root{ --bg:#f7f8fb; --panel:#fff; --glass:#ffffffea; --text:#111827; --muted:#4b5563; --sub:#475569;
+         --border:#e6eaf2; --border-strong:#cbd5e1; --input-bg:#ffffff; --placeholder:#6b7280;
+         --btn1:#4338ca; --btn2:#2563eb; --btn1-hover:#3730a3; --btn2-hover:#1d4ed8;
+         --btn1-active:#312e81; --btn2-active:#1e40af; --hero1:#1f2937; --hero2:#2563eb; }
+}
+/* Streamlit’s in-app theme toggle */
+html[data-theme="light"], .stApp[data-theme="light"]{
+  --bg:#f7f8fb; --panel:#fff; --glass:#ffffffea; --text:#111827; --muted:#4b5563; --sub:#475569;
+  --border:#e6eaf2; --border-strong:#cbd5e1; --input-bg:#ffffff; --placeholder:#6b7280;
+  --btn1:#4338ca; --btn2:#2563eb; --btn1-hover:#3730a3; --btn2-hover:#1d4ed8;
+  --btn1-active:#312e81; --btn2-active:#1e40af; --hero1:#1f2937; --hero2:#2563eb;
+}
 
-        /* Sidebar */
-    section[data-testid="stSidebar"]{
-      background: var(--panel);
-      color: var(--text);
-      border-right:1px solid var(--border);
-    }
-    section[data-testid="stSidebar"] * { color: var(--text) !important; }
-    .sidebar-title{font-weight:700; font-size:1.05rem; margin-bottom:.25rem;}
-    .sidebar-tip{color:var(--text); opacity:.85;}
+/* ===== Base surfaces ===== */
+.stApp{ background:var(--bg); color:var(--text); }
+.block-container{ padding-top:3.6rem!important; padding-bottom:2rem; }
+section[data-testid="stSidebar"]{ background:var(--panel); color:var(--text); border-right:1px solid var(--border); }
+section[data-testid="stSidebar"] *{ color:var(--text)!important; }
 
-        /* Hero */
-    .hero{
-      margin-top:.25rem; margin-bottom:.9rem; padding:18px 20px;
-      border:1px solid var(--border); border-radius:18px;
-      background: linear-gradient(135deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.02) 100%);
-    }
-    .hero h1{
-      margin:0; font-weight:800; letter-spacing:.2px; font-size:1.7rem;
-      background: linear-gradient(90deg, var(--hero1), var(--hero2));
-      -webkit-background-clip:text; background-clip:text; color:transparent;
-    }
-    .hero p{ margin:.25rem 0 0 0; color:var(--sub); }
+/* ===== Hero ===== */
+.hero{
+  margin-top:.25rem; margin-bottom:.9rem; padding:18px 20px;
+  border:1px solid var(--border); border-radius:18px;
+  background: linear-gradient(135deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.02) 100%);
+}
+html[data-theme="light"] .hero,
+.stApp[data-theme="light"] .hero{
+  background: linear-gradient(135deg, rgba(67,56,202,.12) 0%, rgba(37,99,235,.10) 45%, rgba(37,99,235,.06) 100%) !important;
+  border:1px solid var(--border)!important;
+}
+.hero h1{ margin:0; font-weight:800; letter-spacing:.2px; font-size:1.7rem;
+  background:linear-gradient(90deg,var(--hero1),var(--hero2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+.hero p{ margin:.25rem 0 0 0; color:var(--sub); }
 
-        /* Ensure markdown text/headers are white */
-    .stMarkdown, .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
-      color: var(--text);
-    }
+/* ===== Generic text ===== */
+.stMarkdown, .stMarkdown *{ color:var(--text); }
 
-        /* Inputs (text, select, textarea) */
-    label{ font-weight:600; color:var(--text); }
-    .stTextInput>div>div>input,
+/* ===== Inputs ===== */
+label{ font-weight:600; color:var(--text); }
 
-        /* Wrapper that paints the box */
-    .stTextArea [data-baseweb="textarea"],
-    .stTextArea > div > div {                   /* covers older/newer DOMs */
-      background-color: #343A40 !important;
-      border: 1.5px solid var(--border-strong) !important;
-      border-radius: 12px !important;
-      box-shadow: none !important;
-    }
+/* Textarea */
+.stTextArea [data-baseweb="textarea"], .stTextArea > div > div{
+  background-color:var(--input-bg)!important; border:1.5px solid var(--border-strong)!important;
+  border-radius:12px!important; box-shadow:none!important;
+}
+.stTextArea textarea, .stTextArea [data-baseweb="textarea"] > textarea{
+  background-color:var(--input-bg)!important; color:var(--text)!important;
+}
+.stTextArea textarea::placeholder{ color:var(--placeholder)!important; }
 
-        /* The actual <textarea> */
-    .stTextArea textarea,
-    .stTextArea [data-baseweb="textarea"] > textarea {
-      background-color: #343A40 !important;
-      color: var(--text) !important;
-    }
+/* Checkbox label (fix “Show only approved drugs” going white on light) */
+.stCheckbox label, .stCheckbox span{ color:var(--text)!important; }
 
-        /* Optional: placeholder contrast on dark */
-    .stTextArea textarea::placeholder { color: #9AA0A6 !important; }
+/* ===== File uploader: color + “Browse only” clicks ===== */
+/* Color the parent wrapper that Streamlit/BaseWeb paints */
+.stFileUploader > div:first-child{               /* the card-like wrapper */
+  background:var(--input-bg)!important; border-radius:12px!important;
+}
+/* Dropzone and inner layers */
+.stFileUploader [data-testid="stFileUploaderDropzone"],
+.stFileUploader [data-testid="stFileUploaderDropzone"] *,
+.stFileUploader [data-testid="stFileUploaderDropzone"]::before,
+.stFileUploader [data-testid="stFileUploaderDropzone"]::after{
+  background:var(--input-bg)!important; background-color:var(--input-bg)!important;
+  color:var(--text)!important; box-shadow:none!important;
+}
+.stFileUploader [data-testid="stFileUploaderDropzone"]{
+  border:1.5px dashed var(--border-strong)!important; border-radius:12px!important;
+}
 
-        /* ==== FILE UPLOADER: color + click behavior ==== */
+/* Make the big surface NOT clickable; keep only the button active */
+.stFileUploader [data-testid="stFileUploaderDropzone"],
+.stFileUploader [data-testid="stFileUploaderDropzone"] [role="button"],
+.stFileUploader [data-testid="stFileUploaderDropzone"] label,
+.stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"]{
+  pointer-events:none!important; cursor:default!important;
+}
+.stFileUploader [data-testid="stFileUploaderDropzone"] button,
+.stFileUploader [data-testid="stFileUploaderDropzone"] button *{
+  pointer-events:auto!important; cursor:pointer!important; position:relative; z-index:10;
+}
 
-    /* 1) Paint the dropzone and ALL inner layers #343A40 */
-    .stFileUploader [data-testid="stFileUploaderDropzone"],
-    .stFileUploader [data-testid="stFileUploaderDropzone"] *,
-    .stFileUploader [data-testid="stFileUploaderDropzone"]::before,
-    .stFileUploader [data-testid="stFileUploaderDropzone"]::after {
-      background: #343A40 !important;
-      background-color: #343A40 !important;
-      box-shadow: none !important;
-      color: #FFFFFF !important;                 /* keep text/icons readable */
-    }
+/* ===== Select (Organism) ===== */
+.stSelectbox [data-baseweb="select"] > div{
+  background-color:var(--input-bg)!important; border:1.5px solid var(--border-strong)!important; border-radius:12px!important;
+}
+.stSelectbox [data-baseweb="select"] [role="combobox"], .stSelectbox [data-baseweb="select"] *{ color:var(--text)!important; }
+[data-baseweb="popover"] [role="listbox"]{
+  background-color:var(--input-bg)!important; color:var(--text)!important; border:1px solid var(--border-strong)!important;
+}
 
-        /* Preserve the dashed border and rounding on the outer shell */
-    .stFileUploader [data-testid="stFileUploaderDropzone"] {
-      border: 1.5px dashed #3A3A3A !important;
-      border-radius: 12px !important;
-    }
+/* ===== Analyze button ===== */
+.stButton > button{
+  background:linear-gradient(90deg,var(--btn1),var(--btn2))!important; color:#fff; border:none; border-radius:12px;
+  box-shadow:0 8px 18px rgba(0,0,0,.25); transition:transform .08s ease, box-shadow .12s ease, background .12s ease;
+}
+.stButton > button:hover{ background:linear-gradient(90deg,var(--btn1-hover),var(--btn2-hover))!important; transform:translateY(-1px);
+  box-shadow:0 10px 24px rgba(0,0,0,.32); }
+.stButton > button:active{ background:linear-gradient(90deg,var(--btn1-active),var(--btn2-active))!important; transform:translateY(0); }
+.stButton > button:disabled{ background:linear-gradient(90deg,#4b5563,#374151)!important; color:#E5E7EB; box-shadow:none; }
 
-        /* 2) Make ONLY "Browse files" clickable
-          BaseWeb uses a full-width interactive surface (label / role=button).
-          Kill its pointer events, but re-enable for the real <button>. */
-    .stFileUploader [data-testid="stFileUploaderDropzone"] [role="button"],
-    .stFileUploader [data-testid="stFileUploaderDropzone"] label,
-    .stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"] {
-      pointer-events: none !important;           /* disable clicks on the big area */
-      cursor: none !important;
-    }
+/* ===== Plots ===== */
+.js-plotly-plot .plotly .xtick text,
+.js-plotly-plot .plotly .ytick text,
+.js-plotly-plot .plotly .legend text,
+.js-plotly-plot .plotly .gtitle,
+.js-plotly-plot .plotly .sankey text,
+.js-plotly-plot .plotly .sankey .node text{ fill:var(--text)!important; font-weight:700!important; }
 
-        /* Re-enable just the Browse button (and its children) */
-    .stFileUploader [data-testid="stFileUploaderDropzone"] button,
-    .stFileUploader [data-testid="stFileUploaderDropzone"] button * {
-      pointer-events: auto !important;
-      cursor: pointer !important;
-      position: relative;                        /* make sure it sits above */
-      z-index: 10;
-    }
-
-        /* Optional: ensure the dropzone doesn’t look hoverable */
-    .stFileUploader [data-testid="stFileUploaderDropzone"]:hover {
-      filter: none !important;
-    }
-
-
-        /* ===== Organism SELECT ===== */
-    .stSelectbox [data-baseweb="select"] > div {          /* control surface */
-      background-color: #343A40 !important;
-      border: 1.5px solid var(--border-strong) !important;
-      border-radius: 12px !important;
-    }
-        .stSelectbox [data-baseweb="select"] [role="combobox"],
-    .stSelectbox [data-baseweb="select"] * {
-      color: var(--text) !important;
-    }
-    [data-baseweb="popover"] [role="listbox"] {           /* dropdown menu */
-      background-color: #343A40 !important;
-      color: var(--text) !important;
-      border: 1px solid var(--border-strong) !important;
-    }
-
-    .stTextArea textarea{ min-height:80px; max-height:80px; }
-
-        .stButton > button{
-      background: linear-gradient(90deg, var(--btn1), var(--btn2)) !important;
-      color:#fff; border:none; border-radius:12px;
-      box-shadow:0 8px 18px rgba(0,0,0,.25);
-      transition: transform .08s ease, box-shadow .12s ease, background .12s ease;
-    }
-    .stButton > button:hover{
-      background: linear-gradient(90deg, var(--btn1-hover), var(--btn2-hover)) !important;
-      transform: translateY(-1px);
-      box-shadow:0 10px 24px rgba(0,0,0,.32);
-    }
-    .stButton > button:active{
-      background: linear-gradient(90deg, var(--btn1-active), var(--btn2-active)) !important;
-      transform: translateY(0);
-    }
-    .stButton > button:disabled{
-      background: linear-gradient(90deg, #4b5563, #374151) !important;
-      color:#E5E7EB; box-shadow:none;
-    }
-
-    /* Tabs & tables */
-    .stTabs [data-baseweb="tab"] { font-weight:700; color:var(--sub); }
-    .stTabs [aria-selected="true"] { color:var(--text); border-bottom:2px solid var(--btn1); }
-    .stDataFrame{ border:1px solid var(--border-strong); border-radius:12px; overflow:hidden; }
-
-    /* Keep plot trace colors default; only make labels readable on dark */
-    .js-plotly-plot .plotly .xtick text,
-    .js-plotly-plot .plotly .ytick text,
-    .js-plotly-plot .plotly .legend text,
-    .js-plotly-plot .plotly .gtitle,
-    .js-plotly-plot .plotly .sankey text,
-    .js-plotly-plot .plotly .sankey .node text{
-      fill: #FFFFFF !important; font-weight:700 !important;
-    }
-
-    /* Drug filters header z-order */
-    .drug-filters { position: relative; z-index: 5; margin-top: 10px; }
-
-    /* Responsive tweaks */
-    @media (max-width: 900px){
-      .block-container { padding-top: 2.2rem !important; }
-      .hero h1{ font-size:1.35rem; }
-      .stTextArea textarea{ min-height:120px; max-height:160px; }
-      [data-testid="column"]{ width:100% !important; flex: 1 1 100% !important; }
-    }
+/* Misc */
+.drug-filters{ position:relative; z-index:5; margin-top:10px; }
+@media (max-width:900px){
+  .block-container{ padding-top:2.2rem!important; }
+  .hero h1{ font-size:1.35rem; }
+  .stTextArea textarea{ min-height:120px; max-height:160px; }
+  [data-testid="column"]{ width:100%!important; flex:1 1 100%!important; }
+}
+    
     </style>
     """,
     unsafe_allow_html=True,
