@@ -23,166 +23,104 @@ from pathlib import Path
 # ----------------------------
 st.set_page_config(
     page_title="Gene2Therapy – BioContext",
-    page_icon="💊",
+    page_icon="💊",              # safe page icon (avoids missing file issues)
     layout="wide",
     initial_sidebar_state="expanded",
 )
-# ---------- Global CSS (DARK ONLY) ----------
+
+# ---------- Global CSS: dark/light friendly; hero fix; equal input heights ----------
 st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
-    /* =======================
-   DEFAULT = DARK TOKENS
-   ======================= */
-:root{
-  --bg:#212529;
-  --panel:#343A40;
-  --glass:#141414;
+    /* Tokens (dark default) */
+    :root{
+      --bg:#0b1220; --panel:#0f172a; --glass:#0e1630cc;
+      --text:#e6edf3; --muted:#b8c7ef; --sub:#9bbcff;
+      --border:#1f2a44; --border-strong:#3b4b74;            /* darker, more visible in dark */
+      --input-bg:#0b1328; --placeholder:#9aa8c0;
+      --accent:#2563eb; --accent2:#22d3ee;
+      --hero1:#eef6ff; --hero2:#9ae6ff;                     /* brighter title gradient (dark) */
+    }
+    /* Light overrides */
+    @media (prefers-color-scheme: light) {
+      :root{
+        --bg:#f7f8fb; --panel:#ffffff; --glass:#ffffffea;
+        --text:#0b1220; --muted:#4b5563; --sub:#475569;
+        --border:#e6eaf2; --border-strong:#cbd5e1;
+        --input-bg:#ffffff; --placeholder:#6b7280;
+        --accent:#2563eb; --accent2:#06b6d4;
+        --hero1:#1f2937; --hero2:#2563eb;                   /* title gradient (light) */
+      }
+    }
 
-  --text:#FFFFFF;
-  --muted:#E5E7EB;
-  --sub:#D1D5DB;
+    .stApp { 
+      background: radial-gradient(1400px 700px at 10% -10%, rgba(37,99,235,.10) 0%, var(--bg) 45%) fixed; 
+      color: var(--text); 
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial; 
+    }
+    /* Ensure hero isn't clipped under Streamlit header */
+    .block-container { padding-top: 3.6rem !important; padding-bottom: 2rem; }
 
-  --border:#252525;
-  --border-strong:#3A3A3A;
+    /* Sidebar */
+    section[data-testid="stSidebar"]{ background: linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%); border-right:1px solid var(--border); }
+    .sidebar-title{font-weight:700; font-size:1.05rem; margin-bottom:.25rem;}
+    .sidebar-tip{color:var(--muted);}
 
-  --input-bg:#343A40;
-  --placeholder:#9AA0A6;
+    /* Hero */
+    .hero{
+      margin-top:.25rem; margin-bottom:.9rem; padding:18px 20px;
+      border:1px solid var(--border); border-radius:18px;
+      background: linear-gradient(135deg, rgba(37,99,235,.12) 0%, rgba(34,211,238,.08) 100%);
+    }
+    .hero h1{
+      margin:0; font-weight:800; letter-spacing:.2px; font-size:1.7rem;
+      background: linear-gradient(90deg, var(--hero1), var(--hero2));
+      -webkit-background-clip:text; background-clip:text; color:transparent;
+      text-shadow: 0 0 10px rgba(154,230,255,.15);          /* extra pop on dark */
+    }
+    .hero p{ margin:.25rem 0 0 0; color:var(--sub); }
 
-  /* Analyze button (dark) */
-  --btn1:#0f766e;
-  --btn2:#10b981;
-  --btn1-hover:#115e59; --btn2-hover:#059669;
-  --btn1-active:#0b534b; --btn2-active:#047857;
+    /* Cards */
+    .card{ background: var(--glass); border:2px solid var(--border-strong); border-radius:18px; padding:18px; margin-bottom:14px; box-shadow:0 10px 26px rgba(0,0,0,.12); }
+    .section-title{ font-weight:700; margin:0 0 .5rem 0; display:flex; align-items:center; gap:.5rem; font-size:1.05rem; }
+    .section-title .icon{ color:var(--accent); }
 
-  --hero1:#FFFFFF;
-  --hero2:#B3B3B3;
-}
+    /* Inputs */
+    label{ font-weight:600; color:var(--text); }
+    .stTextInput>div>div>input,
+    .stTextArea>div>textarea,
+    .stSelectbox>div>div>div{
+      background:var(--input-bg)!important; border:2px solid var(--border-strong)!important; color:var(--text)!important; border-radius:12px;
+    }
+    .stTextInput input::placeholder, .stTextArea textarea::placeholder{ color:var(--placeholder)!important; opacity:1; }
 
-/* =======================
-   LIGHT THEME (supports both OS pref & Streamlit toggle)
-   ======================= */
-@media (prefers-color-scheme: light){
-  :root{ --bg:#f7f8fb; --panel:#fff; --glass:#ffffffea; --text:#111827; --muted:#4b5563; --sub:#475569;
-         --border:#e6eaf2; --border-strong:#cbd5e1; --input-bg:#ffffff; --placeholder:#6b7280;
-         --btn1:#4338ca; --btn2:#2563eb; --btn1-hover:#3730a3; --btn2-hover:#1d4ed8;
-         --btn1-active:#312e81; --btn2-active:#1e40af; --hero1:#1f2937; --hero2:#2563eb; }
-}
-/* Streamlit’s in-app theme toggle */
-html[data-theme="light"], .stApp[data-theme="light"]{
-  --bg:#f7f8fb; --panel:#fff; --glass:#ffffffea; --text:#111827; --muted:#4b5563; --sub:#475569;
-  --border:#e6eaf2; --border-strong:#cbd5e1; --input-bg:#ffffff; --placeholder:#6b7280;
-  --btn1:#4338ca; --btn2:#2563eb; --btn1-hover:#3730a3; --btn2-hover:#1d4ed8;
-  --btn1-active:#312e81; --btn2-active:#1e40af; --hero1:#1f2937; --hero2:#2563eb;
-}
+    /* File uploader + textarea: equal height & visible borders */
+    div[data-testid="stFileUploaderDropzone"]{
+      min-height:140px; display:flex; align-items:center; border-radius:14px;
+      background:var(--input-bg)!important; border:2px dashed var(--border-strong)!important;
+    }
+    .stTextArea textarea{ min-height:140px; max-height:140px; }
 
-/* ===== Base surfaces ===== */
-.stApp{ background:var(--bg); color:var(--text); }
-.block-container{ padding-top:3.6rem!important; padding-bottom:2rem; }
-section[data-testid="stSidebar"]{ background:var(--panel); color:var(--text); border-right:1px solid var(--border); }
-section[data-testid="stSidebar"] *{ color:var(--text)!important; }
+    /* Buttons */
+    .stButton>button{
+      border-radius:12px; font-weight:700; padding:.6rem 1rem;
+      background: linear-gradient(90deg, var(--accent), var(--accent2)); color:#ffffff; border:none;
+      box-shadow:0 10px 20px rgba(37,99,235,.20);
+    }
+    .stButton>button:disabled{ background:linear-gradient(90deg,#94a3b8,#64748b); color:#e5e7eb; box-shadow:none; }
 
-/* ===== Hero ===== */
-.hero{
-  margin-top:.25rem; margin-bottom:.9rem; padding:18px 20px;
-  border:1px solid var(--border); border-radius:18px;
-  background: linear-gradient(135deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.02) 100%);
-}
-html[data-theme="light"] .hero,
-.stApp[data-theme="light"] .hero{
-  background: linear-gradient(135deg, rgba(67,56,202,.12) 0%, rgba(37,99,235,.10) 45%, rgba(37,99,235,.06) 100%) !important;
-  border:1px solid var(--border)!important;
-}
-.hero h1{ margin:0; font-weight:800; letter-spacing:.2px; font-size:1.7rem;
-  background:linear-gradient(90deg,var(--hero1),var(--hero2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
-.hero p{ margin:.25rem 0 0 0; color:var(--sub); }
+    /* Tabs and tables */
+    .stTabs [data-baseweb="tab"] { font-weight:700; color:var(--sub); }
+    .stTabs [aria-selected="true"] { color:var(--text); border-bottom:2px solid var(--accent); }
+    .stDataFrame{ border:2px solid var(--border-strong); border-radius:12px; overflow:hidden; }
 
-/* ===== Generic text ===== */
-.stMarkdown, .stMarkdown *{ color:var(--text); }
-
-/* ===== Inputs ===== */
-label{ font-weight:600; color:var(--text); }
-
-/* Textarea */
-.stTextArea [data-baseweb="textarea"], .stTextArea > div > div{
-  background-color:var(--input-bg)!important; border:1.5px solid var(--border-strong)!important;
-  border-radius:12px!important; box-shadow:none!important;
-}
-.stTextArea textarea, .stTextArea [data-baseweb="textarea"] > textarea{
-  background-color:var(--input-bg)!important; color:var(--text)!important;
-}
-.stTextArea textarea::placeholder{ color:var(--placeholder)!important; }
-
-/* Checkbox label (fix “Show only approved drugs” going white on light) */
-.stCheckbox label, .stCheckbox span{ color:var(--text)!important; }
-
-/* ===== File uploader: color + “Browse only” clicks ===== */
-/* Color the parent wrapper that Streamlit/BaseWeb paints */
-.stFileUploader > div:first-child{               /* the card-like wrapper */
-  background:var(--input-bg)!important; border-radius:12px!important;
-}
-/* Dropzone and inner layers */
-.stFileUploader [data-testid="stFileUploaderDropzone"],
-.stFileUploader [data-testid="stFileUploaderDropzone"] *,
-.stFileUploader [data-testid="stFileUploaderDropzone"]::before,
-.stFileUploader [data-testid="stFileUploaderDropzone"]::after{
-  background:var(--input-bg)!important; background-color:var(--input-bg)!important;
-  color:var(--text)!important; box-shadow:none!important;
-}
-.stFileUploader [data-testid="stFileUploaderDropzone"]{
-  border:1.5px dashed var(--border-strong)!important; border-radius:12px!important;
-}
-
-/* Make the big surface NOT clickable; keep only the button active */
-.stFileUploader [data-testid="stFileUploaderDropzone"],
-.stFileUploader [data-testid="stFileUploaderDropzone"] [role="button"],
-.stFileUploader [data-testid="stFileUploaderDropzone"] label,
-.stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"]{
-  pointer-events:none!important; cursor:default!important;
-}
-.stFileUploader [data-testid="stFileUploaderDropzone"] button,
-.stFileUploader [data-testid="stFileUploaderDropzone"] button *{
-  pointer-events:auto!important; cursor:pointer!important; position:relative; z-index:10;
-}
-
-/* ===== Select (Organism) ===== */
-.stSelectbox [data-baseweb="select"] > div{
-  background-color:var(--input-bg)!important; border:1.5px solid var(--border-strong)!important; border-radius:12px!important;
-}
-.stSelectbox [data-baseweb="select"] [role="combobox"], .stSelectbox [data-baseweb="select"] *{ color:var(--text)!important; }
-[data-baseweb="popover"] [role="listbox"]{
-  background-color:var(--input-bg)!important; color:var(--text)!important; border:1px solid var(--border-strong)!important;
-}
-
-/* ===== Analyze button ===== */
-.stButton > button{
-  background:linear-gradient(90deg,var(--btn1),var(--btn2))!important; color:#fff; border:none; border-radius:12px;
-  box-shadow:0 8px 18px rgba(0,0,0,.25); transition:transform .08s ease, box-shadow .12s ease, background .12s ease;
-}
-.stButton > button:hover{ background:linear-gradient(90deg,var(--btn1-hover),var(--btn2-hover))!important; transform:translateY(-1px);
-  box-shadow:0 10px 24px rgba(0,0,0,.32); }
-.stButton > button:active{ background:linear-gradient(90deg,var(--btn1-active),var(--btn2-active))!important; transform:translateY(0); }
-.stButton > button:disabled{ background:linear-gradient(90deg,#4b5563,#374151)!important; color:#E5E7EB; box-shadow:none; }
-
-/* ===== Plots ===== */
-.js-plotly-plot .plotly .xtick text,
-.js-plotly-plot .plotly .ytick text,
-.js-plotly-plot .plotly .legend text,
-.js-plotly-plot .plotly .gtitle,
-.js-plotly-plot .plotly .sankey text,
-.js-plotly-plot .plotly .sankey .node text{ fill:var(--text)!important; font-weight:700!important; }
-
-/* Misc */
-.drug-filters{ position:relative; z-index:5; margin-top:10px; }
-@media (max-width:900px){
-  .block-container{ padding-top:2.2rem!important; }
-  .hero h1{ font-size:1.35rem; }
-  .stTextArea textarea{ min-height:120px; max-height:160px; }
-  [data-testid="column"]{ width:100%!important; flex:1 1 100%!important; }
-}
-    
+    /* Plotly text readable in both modes */
+    .js-plotly-plot .plotly .xtick text,
+    .js-plotly-plot .plotly .ytick text,
+    .js-plotly-plot .plotly .legend text,
+    .js-plotly-plot .plotly .gtitle{ fill: var(--text) !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -351,7 +289,7 @@ OT_GQL = "https://api.platform.opentargets.org/api/v4/graphql"
 @st.cache_data(ttl=3600)
 def ot_query(query: str, variables: dict | None = None) -> dict:
     try:
-        r = requests.post(OT_GQL, json={"query": query, "variables": variables or {}})
+        r = requests.post(OT_GQL, json={"query": query, "variables": variables or {}}, timeout=40)
         data = r.json()
         if r.status_code >= 400 or (isinstance(data, dict) and data.get("errors") and not data.get("data")):
             return {}
@@ -526,9 +464,10 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
     return pd.DataFrame(columns=["gene", "target", "drug_id", "drug_name", "phase", "moa", "diseases"])
 
 # ----------------------------
-# UI – Inputs
+# UI – Inputs (single clean card)
 # ----------------------------
 with st.container():
+    #st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown('<div class="section-title"><span class="icon">🔧</span>Input</div>', unsafe_allow_html=True)
     st.markdown('<div class="hint">Upload a gene list (CSV/TSV/XLSX/TXT) or paste genes, then explore annotations, enrichment, diseases, and drugs.</div>', unsafe_allow_html=True)
 
@@ -552,10 +491,11 @@ with st.container():
         manual_input = st.text_area(
             "Or paste gene symbols here (comma, space, or newline separated):",
             placeholder="e.g. TP53, BRCA1, EGFR, MYC",
-            height=80,
+            height=140,  # same visual height as uploader (CSS enforces)
         )
 
-    st.markdown('<h4 class="drug-filters">Drug filters (applied in the Drug Suggestions tab)</h4>', unsafe_allow_html=True)
+    # ---- Drug filters (applied in the Drug Suggestions tab)
+    st.markdown("#### Drug filters (applied in the Drug Suggestions tab)")
     opt_only_phase4 = st.checkbox(
         "Show only approved drugs (Phase 4)",
         value=True,
@@ -574,6 +514,7 @@ with st.container():
         genes_from_input = load_genes_from_any(uploaded)
 
     run_btn = st.button("▶️ Analyze", type="primary", disabled=(not genes_from_input or not email))
+    st.markdown("</div>", unsafe_allow_html=True)  # /card
 
 st.divider()
 
@@ -585,7 +526,7 @@ meta_tab, enrich_tab, disease_tab, drug_tab, viz_tab = st.tabs([
 ])
 
 if run_btn:
-    # Load genes
+    # -------- Load genes --------
     try:
         genes = genes_from_input
         if not genes:
@@ -596,7 +537,7 @@ if run_btn:
         st.error(f"Could not read input: {e}")
         st.stop()
 
-    # Step 1
+    # -------- Step 1: Metadata --------
     with meta_tab:
         st.markdown('<div class="section-title"><span class="icon">📇</span>Step 1 — NCBI + KEGG annotations</div>', unsafe_allow_html=True)
         progress = st.progress(0.0)
@@ -619,7 +560,7 @@ if run_btn:
         else:
             st.info("No metadata found for the provided gene list.")
 
-    # Step 2
+    # -------- Step 2: Enrichment (counts-only) --------
     with enrich_tab:
         st.markdown('<div class="section-title"><span class="icon">📊</span>Step 2 — Pathway Enrichment (counts-only)</div>', unsafe_allow_html=True)
         with st.spinner("Summarizing pathway hits..."):
@@ -645,7 +586,7 @@ if run_btn:
             except Exception:
                 pass
 
-    # Step 3
+    # -------- Step 3: Disease Links --------
     with disease_tab:
         st.markdown('<div class="section-title"><span class="icon">🧬</span>Step 3 — Disease Associations (OpenTargets)</div>', unsafe_allow_html=True)
         with st.spinner("Mapping symbols to Ensembl IDs and fetching disease links..."):
@@ -688,7 +629,7 @@ if run_btn:
             except Exception:
                 pass
 
-    # Step 4
+    # -------- Step 4: Drug Suggestions (OpenTargets) --------
     with drug_tab:
         st.markdown('<div class="section-title"><span class="icon">💊</span>Step 4 — Repurposable Drug Suggestions</div>', unsafe_allow_html=True)
         with st.spinner("Fetching known drugs targeting your genes..."):
@@ -745,11 +686,12 @@ if run_btn:
                 mime="text/csv"
             )
 
-    # Step 5
+    # -------- Step 5: Visualizations --------
     with viz_tab:
         st.markdown('<div class="section-title"><span class="icon">🌐</span>Step 5 — Visualize the landscape</div>', unsafe_allow_html=True)
         colA, colB = st.columns(2)
 
+        # Sankey: Genes → Diseases (top 10) → Drugs (optional)
         with colA:
             try:
                 if 'df_dis' in locals() and not df_dis.empty:
@@ -798,6 +740,7 @@ if run_btn:
             except Exception as e:
                 st.warning(f"Sankey could not be drawn: {e}")
 
+        # Network: Pathway ↔ Genes (top pathways)
         with colB:
             try:
                 if 'df_enrich' in locals() and not df_enrich.empty:
