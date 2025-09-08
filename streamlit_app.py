@@ -22,7 +22,7 @@ from pathlib import Path
 # App Config / Theming (MUST be first Streamlit call)
 # ----------------------------
 st.set_page_config(
-    page_title="Gene 2 Therapy – BioContext",
+    page_title="Gene2Therapy – BioContext",
     page_icon="💊",              # safe page icon (avoids missing file issues)
     layout="wide",
     initial_sidebar_state="expanded",
@@ -36,12 +36,12 @@ st.markdown(
 
     /* Tokens (dark default) */
     :root{
-      --bg:#18191E; --panel:#000010; --glass:#0e1630cc;
-      --text:#e6edf3; --muted:#e6edf3; --sub:#e6edf3;
+      --bg:#0b1220; --panel:#0f172a; --glass:#0e1630cc;
+      --text:#e6edf3; --muted:#b8c7ef; --sub:#9bbcff;
       --border:#1f2a44; --border-strong:#3b4b74;            /* darker, more visible in dark */
-      --input-bg:#0b1328; --placeholder:#e6edf3;
+      --input-bg:#0b1328; --placeholder:#9aa8c0;
       --accent:#2563eb; --accent2:#22d3ee;
-      --hero1:#e6edf3; --hero2:#e6edf3;                     /* brighter title gradient (dark) */
+      --hero1:#eef6ff; --hero2:#9ae6ff;                     /* brighter title gradient (dark) */
     }
     /* Light overrides */
     @media (prefers-color-scheme: light) {
@@ -145,7 +145,7 @@ with right:
     st.markdown(
         """
         <div class="hero">
-          <h1>Gene 2 Therapy</h1>
+          <h1>Gene2Therapy</h1>
           <p>Fast annotations → Enrichment → Disease links → Drug suggestions</p>
         </div>
         """,
