@@ -45,8 +45,8 @@ st.markdown(
       --border:#252525;
       --border-strong:#3A3A3A;
 
-      --input-bg:#303030;      /* inputs, textareas, selects, uploader */
-      --placeholder:#B3B3B3;   /* visible on dark */
+      --input-bg:#343A40;      /* inputs, textareas, selects, uploader */
+      --placeholder:#343A40;   /* visible on dark */
 
       --btn1:#9CA3AF;          /* button gradient start (grayish) */
       --btn2:#6B7280;          /* button gradient end (grayish) */
