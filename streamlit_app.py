@@ -95,9 +95,6 @@ st.markdown(
     label{ font-weight:600; color:var(--text); }
     .stTextInput>div>div>input,
     .stTextArea>div>textarea,
-    /* Vertical spacing between widgets */
-    .stSelectbox{ margin-bottom:14px; }
-    .stTextArea{  margin-top:8px; }
     .stSelectbox>div>div>div{
       background: #343A40 !important;
       border:1.5px solid var(--border-strong)!important;
