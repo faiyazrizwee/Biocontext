@@ -36,7 +36,7 @@ st.markdown(
 
     /* brand tokens provided */
     :root{
-      --black-bean:#3b0d11;
+      --silver:#C0C5C1;
       --battleship-gray:#999999;
       --night:#0b0b0b;
     }
@@ -51,7 +51,7 @@ st.markdown(
       --hero1:#1f2937; --hero2:#2563eb;
     }
 
-    /* ===== DARK Theme (your three colors + white text) ===== */
+    /* ===== DARK Theme ===== */
     @media (prefers-color-scheme: dark) {
       :root{
         --bg:var(--night);
@@ -65,9 +65,9 @@ st.markdown(
         --border-strong:#99999966;
         --input-bg:var(--night);
         --placeholder:var(--battleship-gray);
-        /* use black-bean for accents/icons; button gradient set explicitly below */
-        --accent:var(--black-bean);
-        --accent2:var(--black-bean);
+        /* use silver for accents/icons; button gradient set explicitly below */
+        --accent:var(--silver);
+        --accent2:var(--silver);
         /* title gradient hues for hero text */
         --hero1:#ffffff;
         --hero2:var(--battleship-gray);
