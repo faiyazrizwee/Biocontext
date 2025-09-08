@@ -44,7 +44,7 @@ st.markdown(
     /* ===== LIGHT Theme (unchanged) ===== */
     :root{
       --bg:#f7f8fb; --panel:#ffffff; --glass:#ffffffea;
-      --text:#0b1220; --muted:#4b5563; --sub:#475569;
+      --text:#000000; --muted:#4b5563; --sub:#475569;
       --border:#e6eaf2; --border-strong:#cbd5e1;
       --input-bg:#ffffff; --placeholder:#ffffff;   /* kept as you had it */
       --accent:#2563eb; --accent2:#06b6d4;
