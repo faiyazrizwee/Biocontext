@@ -157,6 +157,20 @@ st.markdown(
     .js-plotly-plot .plotly .sankey .node text{
       fill: var(--text) !important; font-weight:700 !important;
     }
+        /* --- Fix: Drug filters header getting overlapped in light theme --- */
+    .drug-filters { 
+      position: relative; 
+      z-index: 5;          /* sit above uploader/textarea */
+      clear: both;         /* start on a new row cleanly */
+      margin-top: 8px;
+    }
+
+    /* keep inputs below the header in stacking order */
+    div[data-testid="stFileUploaderDropzone"],
+    .stTextArea, .stTextArea > div, .stTextArea textarea {
+      position: relative;
+      z-index: 1;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -529,7 +543,7 @@ with st.container():
             height=80,
         )
 
-    st.markdown("#### Drug filters (applied in the Drug Suggestions tab)")
+    st.markdown('<h4 class="drug-filters">Drug filters (applied in the Drug Suggestions tab)</h4>', unsafe_allow_html=True)
     opt_only_phase4 = st.checkbox(
         "Show only approved drugs (Phase 4)",
         value=True,
