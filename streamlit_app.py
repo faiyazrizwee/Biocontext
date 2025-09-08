@@ -27,34 +27,32 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-# ---------- Global CSS (LIGHT ONLY) ----------
+# ---------- Global CSS (DARK ONLY) ----------
 st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
-    /* ===== LIGHT Theme tokens ===== */
     :root{
-      --bg:#f7f8fb; 
-      --panel:#ffffff; 
-      --glass:#ffffffea;
+      --bg:#0B0B0B;
+      --panel:#7A7A7A;         /* sidebar background */
+      --glass:#141414;
 
-      --text:#000000;                 /* primary text */
-      --muted:#4b5563;                /* helper text (sidebar tips) */
-      --sub:#475569;                  /* subheads, unselected tabs */
+      --text:#FFFFFF;          /* global text */
+      --muted:#E5E7EB;         /* helper text */
+      --sub:#D1D5DB;           /* subheads, unselected tabs */
 
-      --border:#e6eaf2; 
-      --border-strong:#cbd5e1;
+      --border:#252525;
+      --border-strong:#3A3A3A;
 
-      --input-bg:#ffffff;             /* inputs, textareas, selects, uploader */
-      --placeholder:#6b7280;          /* visible on white */
+      --input-bg:#303030;      /* inputs, textareas, selects, uploader */
+      --placeholder:#B3B3B3;   /* visible on dark */
 
-      --accent:#2563eb;               /* button gradient start, active tab underline */
-      --accent2:#06b6d4;              /* button gradient end */
+      --btn1:#9CA3AF;          /* button gradient start (grayish) */
+      --btn2:#6B7280;          /* button gradient end (grayish) */
 
-      --hero1:#1f2937;                /* hero title gradient */
-      --hero2:#2563eb;
+      --hero1:#FFFFFF;         /* hero title gradient (subtle) */
+      --hero2:#B3B3B3;
     }
 
     /* App surface */
@@ -63,22 +61,23 @@ st.markdown(
       color: var(--text);
       font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial;
     }
-    /* prevent hero clipping under Streamlit header */
     .block-container { padding-top: 3.6rem !important; padding-bottom: 2rem; }
 
     /* Sidebar */
     section[data-testid="stSidebar"]{
       background: var(--panel);
+      color: var(--text);
       border-right:1px solid var(--border);
     }
+    section[data-testid="stSidebar"] * { color: var(--text) !important; }
     .sidebar-title{font-weight:700; font-size:1.05rem; margin-bottom:.25rem;}
-    .sidebar-tip{color:var(--muted);}
+    .sidebar-tip{color:var(--text); opacity:.85;}
 
     /* Hero */
     .hero{
       margin-top:.25rem; margin-bottom:.9rem; padding:18px 20px;
       border:1px solid var(--border); border-radius:18px;
-      background: linear-gradient(135deg, rgba(37,99,235,.08) 0%, rgba(34,211,238,.04) 100%);
+      background: linear-gradient(135deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.02) 100%);
     }
     .hero h1{
       margin:0; font-weight:800; letter-spacing:.2px; font-size:1.7rem;
@@ -87,16 +86,12 @@ st.markdown(
     }
     .hero p{ margin:.25rem 0 0 0; color:var(--sub); }
 
-    /* Section titles */
-    .section-title{ font-weight:700; margin:0 0 .5rem 0; display:flex; align-items:center; gap:.5rem; font-size:1.05rem; }
-    .section-title .icon{ color:var(--accent); }
-
-    /* Ensure default markdown text and headings use primary color */
+    /* Ensure markdown text/headers are white */
     .stMarkdown, .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
       color: var(--text);
     }
 
-    /* Inputs */
+    /* Inputs (text, select, textarea) */
     label{ font-weight:600; color:var(--text); }
     .stTextInput>div>div>input,
     .stTextArea>div>textarea,
@@ -109,52 +104,52 @@ st.markdown(
       color:var(--placeholder)!important; opacity:1;
     }
 
-    /* File uploader + textarea: visible borders + white background */
+    /* File uploader (same dark input color) */
     div[data-testid="stFileUploaderDropzone"]{
       min-height:140px; display:flex; align-items:center; border-radius:14px;
-      background:#ffffff!important;
+      background:var(--input-bg)!important;
       border:1.5px dashed var(--border-strong)!important;
       color: var(--text);
     }
-    .stTextArea textarea{ 
-      min-height:80px; 
-      max-height:80px; 
-      background:#ffffff!important; 
-      color:#000000!important;
-    }
 
-    /* Buttons — Analyze button keeps light look */
+    .stTextArea textarea{ min-height:80px; max-height:80px; }
+
+    /* Buttons — grayish gradient */
     .stButton>button{
       border-radius:12px; font-weight:700; padding:.6rem 1rem;
-      background: linear-gradient(90deg, var(--accent), var(--accent2)) !important;
+      background: linear-gradient(90deg, var(--btn1), var(--btn2)) !important;
       color:#ffffff; border:none;
+      box-shadow:0 8px 18px rgba(0,0,0,.25);
     }
-    .stButton>button:disabled{ background:linear-gradient(90deg,#94a3b8,#64748b) !important; color:#e5e7eb; }
+    .stButton>button:disabled{
+      background: linear-gradient(90deg, #4B5563, #374151) !important;
+      color:#E5E7EB;
+      box-shadow:none;
+    }
 
     /* Tabs & tables */
     .stTabs [data-baseweb="tab"] { font-weight:700; color:var(--sub); }
-    .stTabs [aria-selected="true"] { color:var(--text); border-bottom:2px solid var(--accent); }
+    .stTabs [aria-selected="true"] { color:var(--text); border-bottom:2px solid var(--btn1); }
     .stDataFrame{ border:1px solid var(--border-strong); border-radius:12px; overflow:hidden; }
 
-    /* Plotly readability */
+    /* Keep plot trace colors default; only make labels readable on dark */
     .js-plotly-plot .plotly .xtick text,
     .js-plotly-plot .plotly .ytick text,
     .js-plotly-plot .plotly .legend text,
     .js-plotly-plot .plotly .gtitle,
     .js-plotly-plot .plotly .sankey text,
     .js-plotly-plot .plotly .sankey .node text{
-      fill: var(--text) !important; font-weight:700 !important;
+      fill: #FFFFFF !important; font-weight:700 !important;
     }
 
-    /* Make the "Drug filters" header sit cleanly (had been overlapped before) */
+    /* Drug filters header z-order */
     .drug-filters { position: relative; z-index: 5; margin-top: 10px; }
 
-    /* -------- Responsive tweaks (phones/tablets) -------- */
+    /* Responsive tweaks */
     @media (max-width: 900px){
       .block-container { padding-top: 2.2rem !important; }
       .hero h1{ font-size:1.35rem; }
       .stTextArea textarea{ min-height:120px; max-height:160px; }
-      /* let Streamlit columns stack full-width */
       [data-testid="column"]{ width:100% !important; flex: 1 1 100% !important; }
     }
     </style>
