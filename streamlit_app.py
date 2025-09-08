@@ -142,7 +142,7 @@ st.markdown(
     .stFileUploader [data-testid="stFileUploaderDropzone"] label,
     .stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"] {
       pointer-events: none !important;           /* disable clicks on the big area */
-      cursor: default !important;
+      cursor: none !important;
     }
 
         /* Re-enable just the Browse button (and its children) */
