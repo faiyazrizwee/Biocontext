@@ -34,12 +34,12 @@ st.markdown(
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
-    /* ===== LIGHT: make this the default so boxes aren’t black when light is used ===== */
+    /* ===== LIGHT Theme ===== */
     :root{
       --bg:#f7f8fb; --panel:#ffffff; --glass:#ffffffea;
       --text:#0b1220; --muted:#4b5563; --sub:#475569;
       --border:#e6eaf2; --border-strong:#cbd5e1;
-      --input-bg:#ffffff; --placeholder:#6b7280;
+      --input-bg:#ffffff; --placeholder:#ffffff;
       --accent:#2563eb; --accent2:#06b6d4;
       --hero1:#1f2937; --hero2:#2563eb;
     }
@@ -108,7 +108,7 @@ st.markdown(
       background:var(--input-bg)!important;
       border:1.5px dashed var(--border-strong)!important;
     }
-    .stTextArea textarea{ min-height:140px; max-height:140px; }
+    .stTextArea textarea{ min-height:80px; max-height:80px; }
 
     /* Buttons */
     .stButton>button{
@@ -500,7 +500,7 @@ with st.container():
         manual_input = st.text_area(
             "Or paste gene symbols here (comma, space, or newline separated):",
             placeholder="e.g. TP53, BRCA1, EGFR, MYC",
-            height=140,
+            height=80,
         )
 
     st.markdown("#### Drug filters (applied in the Drug Suggestions tab)")
