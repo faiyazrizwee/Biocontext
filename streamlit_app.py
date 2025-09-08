@@ -22,28 +22,43 @@ from pathlib import Path
 # App Config / Theming (MUST be first Streamlit call)
 # ----------------------------
 st.set_page_config(
-    page_title="Gene 2 Therapy – BioContext",
+    page_title="Gene2Therapy – BioContext",
     page_icon="💊",              # safe page icon (avoids missing file issues)
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ---------- Global CSS: dark/light friendly; hero fix; equal input heights ----------
+# ---------- Global CSS: ChatGPT-like DARK; keep LIGHT as-is ----------
 st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
-    /* Tokens (dark default) */
+    /* ====== DARK THEME ====== */
     :root{
-      --bg:#18191E; --panel:#000010; --glass:#0e1630cc;
-      --text:#e6edf3; --muted:#e6edf3; --sub:#e6edf3;
-      --border:#1f2a44; --border-strong:#3b4b74;            /* darker, more visible in dark */
-      --input-bg:#0b1328; --placeholder:#e6edf3;
-      --accent:#2563eb; --accent2:#22d3ee;
-      --hero1:#e6edf3; --hero2:#e6edf3;                     /* brighter title gradient (dark) */
+      /* Surfaces */
+      --bg:#0e0f13;            /* main app background (near-black) */
+      --panel:#0b0c10;         /* sidebar background */
+      --glass:#13151a;         /* subtle elevated panel */
+      /* Text */
+      --text:#ececf1;          /* primary text (ChatGPT uses very light gray) */
+      --muted:#c7c9d1;         /* secondary text */
+      --sub:#aeb3bc;           /* subtle captions */
+      /* Borders */
+      --border:#22252c;        /* hairline */
+      --border-strong:#323742; /* stronger outline (inputs/cards) */
+      /* Inputs */
+      --input-bg:#1f2126;      /* search/input background */
+      --placeholder:#9aa0a6;   /* placeholder */
+      /* Accents (OpenAI green) */
+      --accent:#10a37f;
+      --accent2:#1cc191;
+      /* Hero title gradient (very light → minty) */
+      --hero1:#f0f2f6;
+      --hero2:#9be8d3;
     }
-    /* Light overrides */
+
+    /* ====== LIGHT THEME ====== */
     @media (prefers-color-scheme: light) {
       :root{
         --bg:#f7f8fb; --panel:#ffffff; --glass:#ffffffea;
@@ -51,20 +66,24 @@ st.markdown(
         --border:#e6eaf2; --border-strong:#cbd5e1;
         --input-bg:#ffffff; --placeholder:#6b7280;
         --accent:#2563eb; --accent2:#06b6d4;
-        --hero1:#1f2937; --hero2:#2563eb;                   /* title gradient (light) */
+        --hero1:#1f2937; --hero2:#2563eb;
       }
     }
 
-    .stApp { 
-      background: radial-gradient(1400px 700px at 10% -10%, rgba(37,99,235,.10) 0%, var(--bg) 45%) fixed; 
-      color: var(--text); 
-      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial; 
+    .stApp {
+      background: var(--bg);           /* flat*/
+      color: var(--text);
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial;
     }
-    /* Ensure hero isn't clipped under Streamlit header */
+
+    /* (kept) header spacer to avoid clipping; tweak if you want it tighter */
     .block-container { padding-top: 3.6rem !important; padding-bottom: 2rem; }
 
     /* Sidebar */
-    section[data-testid="stSidebar"]{ background: linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%); border-right:1px solid var(--border); }
+    section[data-testid="stSidebar"]{
+      background: var(--panel);
+      border-right:1px solid var(--border);
+    }
     .sidebar-title{font-weight:700; font-size:1.05rem; margin-bottom:.25rem;}
     .sidebar-tip{color:var(--muted);}
 
@@ -72,49 +91,61 @@ st.markdown(
     .hero{
       margin-top:.25rem; margin-bottom:.9rem; padding:18px 20px;
       border:1px solid var(--border); border-radius:18px;
-      background: linear-gradient(135deg, rgba(37,99,235,.12) 0%, rgba(34,211,238,.08) 100%);
+      background: linear-gradient(135deg, rgba(16,163,127,.12) 0%, rgba(28,193,145,.08) 100%);
     }
     .hero h1{
       margin:0; font-weight:800; letter-spacing:.2px; font-size:1.7rem;
       background: linear-gradient(90deg, var(--hero1), var(--hero2));
       -webkit-background-clip:text; background-clip:text; color:transparent;
-      text-shadow: 0 0 10px rgba(154,230,255,.15);          /* extra pop on dark */
+      text-shadow: 0 0 8px rgba(155,232,211,.12);
     }
     .hero p{ margin:.25rem 0 0 0; color:var(--sub); }
 
     /* Cards */
-    .card{ background: var(--glass); border:2px solid var(--border-strong); border-radius:18px; padding:18px; margin-bottom:14px; box-shadow:0 10px 26px rgba(0,0,0,.12); }
+    .card{
+      background: var(--glass);
+      border:2px solid var(--border-strong);
+      border-radius:18px; padding:18px; margin-bottom:14px;
+      box-shadow:0 10px 26px rgba(0,0,0,.18);
+    }
     .section-title{ font-weight:700; margin:0 0 .5rem 0; display:flex; align-items:center; gap:.5rem; font-size:1.05rem; }
     .section-title .icon{ color:var(--accent); }
 
-    /* Inputs */
+    /* Inputs (ChatGPT-like search field) */
     label{ font-weight:600; color:var(--text); }
     .stTextInput>div>div>input,
     .stTextArea>div>textarea,
     .stSelectbox>div>div>div{
-      background:var(--input-bg)!important; border:2px solid var(--border-strong)!important; color:var(--text)!important; border-radius:12px;
+      background:var(--input-bg)!important;
+      border:1px solid var(--border-strong)!important;
+      color:var(--text)!important; border-radius:12px;
     }
-    .stTextInput input::placeholder, .stTextArea textarea::placeholder{ color:var(--placeholder)!important; opacity:1; }
+    .stTextInput input::placeholder, .stTextArea textarea::placeholder{
+      color:var(--placeholder)!important; opacity:1;
+    }
 
-    /* File uploader + textarea: equal height & visible borders */
+    /* File uploader + textarea: equal, visible borders */
     div[data-testid="stFileUploaderDropzone"]{
       min-height:140px; display:flex; align-items:center; border-radius:14px;
-      background:var(--input-bg)!important; border:2px dashed var(--border-strong)!important;
+      background:var(--input-bg)!important; border:1.5px dashed var(--border-strong)!important;
     }
-    .stTextArea textarea{ min-height:80px; max-height:80px; }
+    .stTextArea textarea{ min-height:140px; max-height:140px; }
 
-    /* Buttons */
+    /* Buttons (green accent) */
     .stButton>button{
       border-radius:12px; font-weight:700; padding:.6rem 1rem;
-      background: linear-gradient(90deg, var(--accent), var(--accent2)); color:#ffffff; border:none;
-      box-shadow:0 10px 20px rgba(37,99,235,.20);
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      color:#ffffff; border:none;
+      box-shadow:0 10px 20px rgba(16,163,127,.18);
     }
-    .stButton>button:disabled{ background:linear-gradient(90deg,#94a3b8,#64748b); color:#e5e7eb; box-shadow:none; }
+    .stButton>button:disabled{
+      background:linear-gradient(90deg,#6b7280,#4b5563); color:#e5e7eb; box-shadow:none;
+    }
 
-    /* Tabs and tables */
-    .stTabs [data-baseweb="tab"] { font-weight:700; color:var(--sub); }
+    /* Tabs & tables */
+    .stTabs [data-baseweb="tab"] { font-weight:700; color:var(--muted); }
     .stTabs [aria-selected="true"] { color:var(--text); border-bottom:2px solid var(--accent); }
-    .stDataFrame{ border:2px solid var(--border-strong); border-radius:12px; overflow:hidden; }
+    .stDataFrame{ border:1px solid var(--border-strong); border-radius:12px; overflow:hidden; }
 
     /* Plotly text readable in both modes */
     .js-plotly-plot .plotly .xtick text,
@@ -123,8 +154,8 @@ st.markdown(
     .js-plotly-plot .plotly .gtitle,
     .js-plotly-plot .plotly .sankey text,
     .js-plotly-plot .plotly .sankey .node text{
-      fill: var(--text) !important;
-     font-weight: 700 !important;}
+      fill: var(--text) !important; font-weight:700 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -145,7 +176,7 @@ with right:
     st.markdown(
         """
         <div class="hero">
-          <h1>Gene 2 Therapy</h1>
+          <h1>Gene2Therapy</h1>
           <p>Fast annotations → Enrichment → Disease links → Drug suggestions</p>
         </div>
         """,
@@ -471,7 +502,6 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
 # UI – Inputs (single clean card)
 # ----------------------------
 with st.container():
-    #st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown('<div class="section-title"><span class="icon">🔧</span>Input</div>', unsafe_allow_html=True)
     st.markdown('<div class="hint">Upload a gene list (CSV/TSV/XLSX/TXT) or paste genes, then explore annotations, enrichment, diseases, and drugs.</div>', unsafe_allow_html=True)
 
@@ -495,7 +525,7 @@ with st.container():
         manual_input = st.text_area(
             "Or paste gene symbols here (comma, space, or newline separated):",
             placeholder="e.g. TP53, BRCA1, EGFR, MYC",
-            height=140,  # same visual height as uploader (CSS enforces)
+            height=140,  # visually matches uploader height
         )
 
     # ---- Drug filters (applied in the Drug Suggestions tab)
@@ -518,7 +548,6 @@ with st.container():
         genes_from_input = load_genes_from_any(uploaded)
 
     run_btn = st.button("▶️ Analyze", type="primary", disabled=(not genes_from_input or not email))
-    st.markdown("</div>", unsafe_allow_html=True)  # /card
 
 st.divider()
 
