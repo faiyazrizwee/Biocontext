@@ -146,7 +146,7 @@ with right:
         """
         <div class="hero">
           <h1>Gene2Therapy</h1>
-          <p>Fast annotations → Enrichment → Disease links → Drug suggestions</p>
+          <p>Fast annotations → enrichment → diseases → drug repurposing (OpenTargets)</p>
         </div>
         """,
         unsafe_allow_html=True,
