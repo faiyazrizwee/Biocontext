@@ -96,7 +96,7 @@ st.markdown(
     .stTextInput>div>div>input,
     .stTextArea>div>textarea,
     .stSelectbox>div>div>div{
-      background:var(--input-bg)!important;
+      background: #343A40 !important;
       border:1.5px solid var(--border-strong)!important;
       color:var(--text)!important; border-radius:12px;
     }
@@ -107,7 +107,7 @@ st.markdown(
     /* File uploader (same dark input color) */
     div[data-testid="stFileUploaderDropzone"]{
       min-height:140px; display:flex; align-items:center; border-radius:14px;
-      background:var(--input-bg)!important;
+      background: #343A40 !important;
       border:1.5px dashed var(--border-strong)!important;
       color: var(--text);
     }
