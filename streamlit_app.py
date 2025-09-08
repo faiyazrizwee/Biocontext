@@ -36,10 +36,10 @@ st.markdown(
 
     /* Tokens (dark default) */
     :root{
-      --bg:#0b1220; --panel:#0f172a; --glass:#0e1630cc;
+      --bg:#000000; --panel:#0f172a; --glass:#0e1630cc;
       --text:#e6edf3; --muted:#b8c7ef; --sub:#9bbcff;
       --border:#1f2a44; --border-strong:#3b4b74;            /* darker, more visible in dark */
-      --input-bg:#0b1328; --placeholder:#9aa8c0;
+      --input-bg:#0b1328; --placeholder:#808080;
       --accent:#2563eb; --accent2:#22d3ee;
       --hero1:#eef6ff; --hero2:#9ae6ff;                     /* brighter title gradient (dark) */
     }
