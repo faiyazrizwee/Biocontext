@@ -22,7 +22,7 @@ from pathlib import Path
 # App Config / Theming (MUST be first Streamlit call)
 # ----------------------------
 st.set_page_config(
-    page_title="Gene2Therapy – BioContext",
+    page_title="Gene 2 Therapy – BioContext",
     page_icon="💊",              # safe page icon (avoids missing file issues)
     layout="wide",
     initial_sidebar_state="expanded",
@@ -145,7 +145,7 @@ with right:
     st.markdown(
         """
         <div class="hero">
-          <h1>Gene2Therapy</h1>
+          <h1>Gene 2 Therapy</h1>
           <p>Fast annotations → Enrichment → Disease links → Drug suggestions</p>
         </div>
         """,
