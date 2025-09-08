@@ -36,7 +36,7 @@ st.markdown(
 
     /* Tokens (dark default) */
     :root{
-      --bg:#18191E; --panel:#0f172a; --glass:#0e1630cc;
+      --bg:#18191E; --panel:#18191E; --glass:#0e1630cc;
       --text:#e6edf3; --muted:#b8c7ef; --sub:#9bbcff;
       --border:#1f2a44; --border-strong:#3b4b74;            /* darker, more visible in dark */
       --input-bg:#0b1328; --placeholder:#808080;
