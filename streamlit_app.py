@@ -37,11 +37,11 @@ st.markdown(
     /* Tokens (dark default) */
     :root{
       --bg:#18191E; --panel:#000010; --glass:#0e1630cc;
-      --text:#e6edf3; --muted:#b8c7ef; --sub:#9bbcff;
+      --text:#e6edf3; --muted:#e6edf3; --sub:#e6edf3;
       --border:#1f2a44; --border-strong:#3b4b74;            /* darker, more visible in dark */
-      --input-bg:#0b1328; --placeholder:#808080;
+      --input-bg:#0b1328; --placeholder:#e6edf3;
       --accent:#2563eb; --accent2:#22d3ee;
-      --hero1:#eef6ff; --hero2:#9ae6ff;                     /* brighter title gradient (dark) */
+      --hero1:#e6edf3; --hero2:#e6edf3;                     /* brighter title gradient (dark) */
     }
     /* Light overrides */
     @media (prefers-color-scheme: light) {
