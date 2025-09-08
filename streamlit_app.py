@@ -94,22 +94,29 @@ st.markdown(
     /* Inputs (text, select, textarea) */
     label{ font-weight:600; color:var(--text); }
     .stTextInput>div>div>input,
-    .stTextArea>div>textarea,
-    .stSelectbox>div>div>div{
-      background: #343A40 !important;
-      border:1.5px solid var(--border-strong)!important;
-      color:var(--text)!important; border-radius:12px;
+        /* Wrapper that paints the box */
+    .stTextArea [data-baseweb="textarea"],
+    .stTextArea > div > div {                   /* covers older/newer DOMs */
+      background-color: #343A40 !important;
+      border: 1.5px solid var(--border-strong) !important;
+      border-radius: 12px !important;
+      box-shadow: none !important;
     }
-    .stTextInput input::placeholder, .stTextArea textarea::placeholder{
-      color:var(--placeholder)!important; opacity:1;
+    /* The actual <textarea> */
+    .stTextArea textarea,
+    .stTextArea [data-baseweb="textarea"] > textarea {
+      background-color: #343A40 !important;
+      color: var(--text) !important;
     }
-
-    /* File uploader (same dark input color) */
-    div[data-testid="stFileUploaderDropzone"]{
-      min-height:140px; display:flex; align-items:center; border-radius:14px;
-      background: #343A40 !important;
-      border:1.5px dashed var(--border-strong)!important;
-      color: var(--text);
+    /* Optional: placeholder contrast on dark */
+    .stTextArea textarea::placeholder { color: #9AA0A6 !important; }
+    
+    /* ---- File uploader dropzone ---- */
+    .stFileUploader div[data-testid="stFileUploaderDropzone"],
+    div[data-testid="stFileUploaderDropzone"] {
+      background-color: #343A40 !important;
+      border: 1.5px dashed var(--border-strong) !important;
+      box-shadow: none !important;
     }
 
     .stTextArea textarea{ min-height:80px; max-height:80px; }
