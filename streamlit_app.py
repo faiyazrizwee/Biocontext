@@ -94,6 +94,7 @@ st.markdown(
     /* Inputs (text, select, textarea) */
     label{ font-weight:600; color:var(--text); }
     .stTextInput>div>div>input,
+
         /* Wrapper that paints the box */
     .stTextArea [data-baseweb="textarea"],
     .stTextArea > div > div {                   /* covers older/newer DOMs */
@@ -102,21 +103,46 @@ st.markdown(
       border-radius: 12px !important;
       box-shadow: none !important;
     }
+
     /* The actual <textarea> */
     .stTextArea textarea,
     .stTextArea [data-baseweb="textarea"] > textarea {
       background-color: #343A40 !important;
       color: var(--text) !important;
     }
+
     /* Optional: placeholder contrast on dark */
     .stTextArea textarea::placeholder { color: #9AA0A6 !important; }
-    
-    /* ---- File uploader dropzone ---- */
-    .stFileUploader div[data-testid="stFileUploaderDropzone"],
+
+        /* ===== File uploader (dropzone) ===== */
     div[data-testid="stFileUploaderDropzone"] {
       background-color: #343A40 !important;
       border: 1.5px dashed var(--border-strong) !important;
       box-shadow: none !important;
+    }
+    /* Its first child sometimes adds another layer — neutralise it */
+    div[data-testid="stFileUploaderDropzone"] > div {
+      background: transparent !important;
+      box-shadow: none !important;
+    }
+    /* Text/icons inside the dropzone */
+    .stFileUploader * { color: var(--text) !important; }
+
+
+        /* ===== Organism SELECT ===== */
+    .stSelectbox [data-baseweb="select"] > div {          /* control surface */
+      background-color: #343A40 !important;
+      border: 1.5px solid var(--border-strong) !important;
+      border-radius: 12px !important;
+    }
+        .stSelectbox [data-baseweb="select"] [role="combobox"],
+    .stSelectbox [data-baseweb="select"] * {
+      color: var(--text) !important;
+    }
+    [data-baseweb="popover"] [role="listbox"] {           /* dropdown menu */
+      background-color: #343A40 !important;
+      color: var(--text) !important;
+      border: 1px solid var(--border-strong) !important;
     }
 
     .stTextArea textarea{ min-height:80px; max-height:80px; }
