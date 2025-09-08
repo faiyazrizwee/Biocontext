@@ -28,58 +28,41 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ---------- Global CSS (light = default; dark uses your 3 colors) ----------
+# ---------- Global CSS (LIGHT ONLY) ----------
 st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
-    /* brand tokens provided */
+    /* ===== LIGHT Theme tokens ===== */
     :root{
-      --silver:#C0C5C1;
-      --battleship-gray:#999999;
-      --night:#0b0b0b;
+      --bg:#f7f8fb; 
+      --panel:#ffffff; 
+      --glass:#ffffffea;
+
+      --text:#000000;                 /* primary text */
+      --muted:#4b5563;                /* helper text (sidebar tips) */
+      --sub:#475569;                  /* subheads, unselected tabs */
+
+      --border:#e6eaf2; 
+      --border-strong:#cbd5e1;
+
+      --input-bg:#ffffff;             /* inputs, textareas, selects, uploader */
+      --placeholder:#6b7280;          /* visible on white */
+
+      --accent:#2563eb;               /* button gradient start, active tab underline */
+      --accent2:#06b6d4;              /* button gradient end */
+
+      --hero1:#1f2937;                /* hero title gradient */
+      --hero2:#2563eb;
     }
 
-    /* ===== LIGHT Theme (unchanged) ===== */
-    :root{
-      --bg:#f7f8fb; --panel:#ffffff; --glass:#ffffffea;
-      --text:#000000; --muted:#4b5563; --sub:#475569;
-      --border:#e6eaf2; --border-strong:#cbd5e1;
-      --input-bg:#ffffff; --placeholder:#ffffff;   /* kept as you had it */
-      --accent:#2563eb; --accent2:#06b6d4;
-      --hero1:#1f2937; --hero2:#2563eb;
-    }
-
-    /* ===== DARK Theme ===== */
-    @media (prefers-color-scheme: dark) {
-      :root{
-        --bg:var(--night);
-        --panel:var(--night);
-        --glass:var(--night);
-        --text:#ffffff;
-        --muted:var(--battleship-gray);
-        --sub:var(--battleship-gray);
-        /* borders derived from battleship-gray with alpha */
-        --border:#99999933;
-        --border-strong:#99999966;
-        --input-bg:var(--night);
-        --placeholder:var(--battleship-gray);
-        /* use silver for accents/icons; button gradient set explicitly below */
-        --accent:var(--silver);
-        --accent2:var(--silver);
-        /* title gradient hues for hero text */
-        --hero1:#ffffff;
-        --hero2:var(--battleship-gray);
-      }
-    }
-
+    /* App surface */
     .stApp {
       background: var(--bg);
       color: var(--text);
       font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial;
     }
-
     /* prevent hero clipping under Streamlit header */
     .block-container { padding-top: 3.6rem !important; padding-bottom: 2rem; }
 
@@ -95,13 +78,7 @@ st.markdown(
     .hero{
       margin-top:.25rem; margin-bottom:.9rem; padding:18px 20px;
       border:1px solid var(--border); border-radius:18px;
-      background: linear-gradient(135deg, rgba(37,99,235,.10) 0%, rgba(34,211,238,.06) 100%);
-    }
-    @media (prefers-color-scheme: dark){
-      .hero{
-        /* soft wash using your colors */
-        background: linear-gradient(135deg, rgba(59,13,17,.30) 0%, rgba(153,153,153,.12) 100%);
-      }
+      background: linear-gradient(135deg, rgba(37,99,235,.08) 0%, rgba(34,211,238,.04) 100%);
     }
     .hero h1{
       margin:0; font-weight:800; letter-spacing:.2px; font-size:1.7rem;
@@ -113,6 +90,11 @@ st.markdown(
     /* Section titles */
     .section-title{ font-weight:700; margin:0 0 .5rem 0; display:flex; align-items:center; gap:.5rem; font-size:1.05rem; }
     .section-title .icon{ color:var(--accent); }
+
+    /* Ensure default markdown text and headings use primary color */
+    .stMarkdown, .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
+      color: var(--text);
+    }
 
     /* Inputs */
     label{ font-weight:600; color:var(--text); }
@@ -127,18 +109,24 @@ st.markdown(
       color:var(--placeholder)!important; opacity:1;
     }
 
-    /* File uploader + textarea: visible borders */
+    /* File uploader + textarea: visible borders + white background */
     div[data-testid="stFileUploaderDropzone"]{
       min-height:140px; display:flex; align-items:center; border-radius:14px;
-      background:var(--input-bg)!important;
+      background:#ffffff!important;
       border:1.5px dashed var(--border-strong)!important;
+      color: var(--text);
     }
-    .stTextArea textarea{ min-height:80px; max-height:80px; }
+    .stTextArea textarea{ 
+      min-height:80px; 
+      max-height:80px; 
+      background:#ffffff!important; 
+      color:#000000!important;
+    }
 
-    /* Buttons — keep Analyze identical to light mode across themes */
+    /* Buttons — Analyze button keeps light look */
     .stButton>button{
       border-radius:12px; font-weight:700; padding:.6rem 1rem;
-      background: linear-gradient(90deg, #2563eb, #06b6d4) !important;  /* fixed gradient */
+      background: linear-gradient(90deg, var(--accent), var(--accent2)) !important;
       color:#ffffff; border:none;
     }
     .stButton>button:disabled{ background:linear-gradient(90deg,#94a3b8,#64748b) !important; color:#e5e7eb; }
@@ -157,19 +145,17 @@ st.markdown(
     .js-plotly-plot .plotly .sankey .node text{
       fill: var(--text) !important; font-weight:700 !important;
     }
-        /* --- Fix: Drug filters header getting overlapped in light theme --- */
-    .drug-filters { 
-      position: relative; 
-      z-index: 5;          /* sit above uploader/textarea */
-      clear: both;         /* start on a new row cleanly */
-      margin-top: 8px;
-    }
 
-    /* keep inputs below the header in stacking order */
-    div[data-testid="stFileUploaderDropzone"],
-    .stTextArea, .stTextArea > div, .stTextArea textarea {
-      position: relative;
-      z-index: 1;
+    /* Make the "Drug filters" header sit cleanly (had been overlapped before) */
+    .drug-filters { position: relative; z-index: 5; margin-top: 10px; }
+
+    /* -------- Responsive tweaks (phones/tablets) -------- */
+    @media (max-width: 900px){
+      .block-container { padding-top: 2.2rem !important; }
+      .hero h1{ font-size:1.35rem; }
+      .stTextArea textarea{ min-height:120px; max-height:160px; }
+      /* let Streamlit columns stack full-width */
+      [data-testid="column"]{ width:100% !important; flex: 1 1 100% !important; }
     }
     </style>
     """,
@@ -339,7 +325,7 @@ OT_GQL = "https://api.platform.opentargets.org/api/v4/graphql"
 @st.cache_data(ttl=3600)
 def ot_query(query: str, variables: dict | None = None) -> dict:
     try:
-        r = requests.post(OT_GQL, json={"query": query, "variables": variables or {}}, timeout=40)
+        r = requests.post(OT_GQL, json={"query": query, "variables": variables or {}})
         data = r.json()
         if r.status_code >= 400 or (isinstance(data, dict) and data.get("errors") and not data.get("data")):
             return {}
