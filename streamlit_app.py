@@ -34,8 +34,8 @@ st.markdown(
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
     :root{
-      --bg:#3D3D3D;
-      --panel:#494949;         /* sidebar background */
+      --bg:#343A40;
+      --panel:#6C757D;         /* sidebar background */
       --glass:#141414;
 
       --text:#FFFFFF;          /* global text */
