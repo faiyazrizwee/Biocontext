@@ -41,7 +41,7 @@ st.markdown(
       --border:#e6eaf2; --border-strong:#cbd5e1;
       --input-bg:#ffffff; --placeholder:#ffffff;
       --accent:#2563eb; --accent2:#06b6d4;
-      --hero1:#1f2937; --hero2:#2563eb;
+      --hero1:#ffffff; --hero2:#2563eb;
     }
 
     /* ===== DARK: only when system prefers dark ===== */
