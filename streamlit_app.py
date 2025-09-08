@@ -48,8 +48,10 @@ st.markdown(
       --input-bg:#343A40;      /* inputs, textareas, selects, uploader */
       --placeholder:#343A40;   /* visible on dark */
 
-      --btn1:#9CA3AF;          /* button gradient start (grayish) */
-      --btn2:#6B7280;          /* button gradient end (grayish) */
+      --btn1:#0f766e;
+      --btn2:#10b981;
+      --btn1-hover:#115e59; --btn2-hover:#059669;
+      --btn1-active:#0b534b; --btn2-active:#047857;
 
       --hero1:#FFFFFF;         /* hero title gradient (subtle) */
       --hero2:#B3B3B3;
@@ -157,17 +159,24 @@ st.markdown(
 
     .stTextArea textarea{ min-height:80px; max-height:80px; }
 
-    /* Buttons — grayish gradient */
-    .stButton>button{
-      border-radius:12px; font-weight:700; padding:.6rem 1rem;
+        .stButton > button{
       background: linear-gradient(90deg, var(--btn1), var(--btn2)) !important;
-      color:#ffffff; border:none;
+      color:#fff; border:none; border-radius:12px;
       box-shadow:0 8px 18px rgba(0,0,0,.25);
+      transition: transform .08s ease, box-shadow .12s ease, background .12s ease;
     }
-    .stButton>button:disabled{
-      background: linear-gradient(90deg, #4B5563, #374151) !important;
-      color:#E5E7EB;
-      box-shadow:none;
+    .stButton > button:hover{
+      background: linear-gradient(90deg, var(--btn1-hover), var(--btn2-hover)) !important;
+      transform: translateY(-1px);
+      box-shadow:0 10px 24px rgba(0,0,0,.32);
+    }
+    .stButton > button:active{
+      background: linear-gradient(90deg, var(--btn1-active), var(--btn2-active)) !important;
+      transform: translateY(0);
+    }
+    .stButton > button:disabled{
+      background: linear-gradient(90deg, #4b5563, #374151) !important;
+      color:#E5E7EB; box-shadow:none;
     }
 
     /* Tabs & tables */
