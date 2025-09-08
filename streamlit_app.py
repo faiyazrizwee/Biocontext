@@ -116,41 +116,36 @@ st.markdown(
         /* Optional: placeholder contrast on dark */
     .stTextArea textarea::placeholder { color: #9AA0A6 !important; }
 
-         /* ===== File uploader ===== */
-
-    /* Paint the dropzone */
-    .stFileUploader [data-testid="stFileUploaderDropzone"]{
-      background-color: #343A40 !important;
-      color: #FFFFFF !important;
+        /* Paint the dropzone and all inner wrappers the same color */
+    .stFileUploader [data-testid="stFileUploaderDropzone"],
+    .stFileUploader [data-testid="stFileUploaderDropzone"] > div,
+    .stFileUploader [data-testid="stFileUploaderDropzone"] > div > div {
+      background: #343A40 !important;        /* override any 'background' shorthand */
+      background-color: #343A40 !important;  /* belt-and-suspenders */
       border: 1.5px dashed #3A3A3A !important;
       border-radius: 12px !important;
       box-shadow: none !important;
-
-      /* Disable clicking/dragging on the whole zone */
-      pointer-events: none;
-      cursor: default !important;
     }
 
-        /* Remove any inner wrapper's own backgrounds */
-    .stFileUploader [data-testid="stFileUploaderDropzone"] > div,
-    .stFileUploader [data-testid="stFileUploaderDropzone"] label,
-    .stFileUploader [data-testid="stFileUploaderDropzone"] section{
-      background: transparent !important;
-      box-shadow: none !important;
-    }
-
-        /* Make all text/icons inside the dropzone white */
-    .stFileUploader [data-testid="stFileUploaderDropzone"] *{
+        /* Text & icons inside the zone */
+    .stFileUploader [data-testid="stFileUploaderDropzone"] * {
       color: #FFFFFF !important;
     }
 
-    /* Re-enable interaction ONLY for the “Browse files” button */
-    .stFileUploader [data-testid="stFileUploaderDropzone"] button{
-      pointer-events: auto;          /* clickable again */
+        /* The reason the whole card is clickable: an overlaid <input type="file"> and/or label.
+       Disable them so only the explicit button works. */
+    .stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"],
+    .stFileUploader [data-testid="stFileUploaderDropzone"] label {
+      pointer-events: none !important;
+      cursor: default !important;
+    }
+
+        /* Re-enable interactivity ONLY for the “Browse files” button */
+    .stFileUploader [data-testid="stFileUploaderDropzone"] button {
+      pointer-events: auto !important;
       cursor: pointer !important;
-      position: relative;            /* ensure it sits above the disabled layer */
-      z-index: 2;
-      /* keep your existing button styling; no background override here */
+      position: relative;   /* ensure it sits above the disabled overlay */
+      z-index: 10;
     }    
 
 
