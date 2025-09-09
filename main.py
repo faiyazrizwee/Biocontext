@@ -1,8 +1,8 @@
 # streamlit_app.py
 # -------------------------------------------------------------
-# BioContext – Gene2Therapy
+# BioContext – Gene2Therapy (OpenTargets drugs)
 # Gene list → KEGG enrichment (counts-only) → Disease links (OpenTargets)
-# → Drug repurposing (Phase-4 filter)
+# → Drug repurposing (Phase-4 filter from OpenTargets)
 # → Visualizations
 # -------------------------------------------------------------
 
@@ -16,44 +16,242 @@ from Bio import Entrez
 import plotly.express as px
 import plotly.graph_objects as go
 import networkx as nx
+from pathlib import Path
 
 # ----------------------------
 # App Config / Theming (MUST be first Streamlit call)
 # ----------------------------
 st.set_page_config(
     page_title="Gene2Therapy – BioContext",
-    page_icon="logo.png",
+    page_icon="💊",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
-
+# ---------- Global CSS (DARK ONLY) ----------
 st.markdown(
     """
     <style>
-    .stApp { background-color: #0b1220; color: #e6edf3; }
-    .stTabs [data-baseweb="tab"] { font-weight: 600; }
-    .stButton>button { border-radius: 12px; font-weight: 600; }
-    .metric-card { background: #121a2b; border-radius: 16px; padding: 18px; border: 1px solid #1f2a44; }
-    .soft-card { background: #0f172a; border-radius: 16px; padding: 16px; border: 1px solid #1e293b; }
-    .accent { color: #7dd3fc; }
-    .section-title { font-size: 1.1rem; margin: 0.25rem 0 0.5rem 0; }
-    .hint { color:#9bbcff; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+
+    :root{
+      --bg:#212529;
+      --panel:#343A40;         /* sidebar background */
+      --glass:#141414;
+
+      --text:#FFFFFF;          /* global text */
+      --muted:#E5E7EB;         /* helper text */
+      --sub:#D1D5DB;           /* subheads, unselected tabs */
+
+      --border:#252525;
+      --border-strong:#3A3A3A;
+
+      --input-bg:#343A40;      /* inputs, textareas, selects, uploader */
+      --placeholder:#343A40;   /* visible on dark */
+
+      --btn1:#0f766e;
+      --btn2:#10b981;
+      --btn1-hover:#115e59; --btn2-hover:#059669;
+      --btn1-active:#0b534b; --btn2-active:#047857;
+
+      --hero1:#FFFFFF;         /* hero title gradient (subtle) */
+      --hero2:#B3B3B3;
+    }
+
+        /* App surface */
+    .stApp {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial;
+    }
+    .block-container { padding-top: 3.6rem !important; padding-bottom: 2rem; }
+
+        /* Sidebar */
+    section[data-testid="stSidebar"]{
+      background: var(--panel);
+      color: var(--text);
+      border-right:1px solid var(--border);
+    }
+    section[data-testid="stSidebar"] * { color: var(--text) !important; }
+    .sidebar-title{font-weight:700; font-size:1.05rem; margin-bottom:.25rem;}
+    .sidebar-tip{color:var(--text); opacity:.85;}
+
+        /* Hero */
+    .hero{
+      margin-top:.25rem; margin-bottom:.9rem; padding:18px 20px;
+      border:1px solid var(--border); border-radius:18px;
+      background: linear-gradient(135deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.02) 100%);
+    }
+    .hero h1{
+      margin:0; font-weight:800; letter-spacing:.2px; font-size:1.7rem;
+      background: linear-gradient(90deg, var(--hero1), var(--hero2));
+      -webkit-background-clip:text; background-clip:text; color:transparent;
+    }
+    .hero p{ margin:.25rem 0 0 0; color:var(--sub); }
+
+        /* Ensure markdown text/headers are white */
+    .stMarkdown, .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
+      color: var(--text);
+    }
+
+        /* Inputs (text, select, textarea) */
+    label{ font-weight:600; color:var(--text); }
+    .stTextInput>div>div>input,
+
+        /* Wrapper that paints the box */
+    .stTextArea [data-baseweb="textarea"],
+    .stTextArea > div > div {                   /* covers older/newer DOMs */
+      background-color: #343A40 !important;
+      border: 1.5px solid var(--border-strong) !important;
+      border-radius: 12px !important;
+      box-shadow: none !important;
+    }
+
+        /* The actual <textarea> */
+    .stTextArea textarea,
+    .stTextArea [data-baseweb="textarea"] > textarea {
+      background-color: #343A40 !important;
+      color: var(--text) !important;
+    }
+
+        /* Optional: placeholder contrast on dark */
+    .stTextArea textarea::placeholder { color: #9AA0A6 !important; }
+
+        /* ==== FILE UPLOADER: color + click behavior ==== */
+
+    /* 1) Paint the dropzone and ALL inner layers #343A40 */
+    .stFileUploader [data-testid="stFileUploaderDropzone"],
+    .stFileUploader [data-testid="stFileUploaderDropzone"] *,
+    .stFileUploader [data-testid="stFileUploaderDropzone"]::before,
+    .stFileUploader [data-testid="stFileUploaderDropzone"]::after {
+      background: #343A40 !important;
+      background-color: #343A40 !important;
+      box-shadow: none !important;
+      color: #FFFFFF !important;                 /* keep text/icons readable */
+    }
+
+        /* Preserve the dashed border and rounding on the outer shell */
+    .stFileUploader [data-testid="stFileUploaderDropzone"] {
+      border: 1.5px dashed #3A3A3A !important;
+      border-radius: 12px !important;
+    }
+
+        /* 2) Make ONLY "Browse files" clickable
+          BaseWeb uses a full-width interactive surface (label / role=button).
+          Kill its pointer events, but re-enable for the real <button>. */
+    .stFileUploader [data-testid="stFileUploaderDropzone"] [role="button"],
+    .stFileUploader [data-testid="stFileUploaderDropzone"] label,
+    .stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"] {
+      pointer-events: none !important;           /* disable clicks on the big area */
+      cursor: none !important;
+    }
+
+        /* Re-enable just the Browse button (and its children) */
+    .stFileUploader [data-testid="stFileUploaderDropzone"] button,
+    .stFileUploader [data-testid="stFileUploaderDropzone"] button * {
+      pointer-events: auto !important;
+      cursor: pointer !important;
+      position: relative;                        /* make sure it sits above */
+      z-index: 10;
+    }
+
+        /* Optional: ensure the dropzone doesn’t look hoverable */
+    .stFileUploader [data-testid="stFileUploaderDropzone"]:hover {
+      filter: none !important;
+    }
+
+
+        /* ===== Organism SELECT ===== */
+    .stSelectbox [data-baseweb="select"] > div {          /* control surface */
+      background-color: #343A40 !important;
+      border: 1.5px solid var(--border-strong) !important;
+      border-radius: 12px !important;
+    }
+        .stSelectbox [data-baseweb="select"] [role="combobox"],
+    .stSelectbox [data-baseweb="select"] * {
+      color: var(--text) !important;
+    }
+    [data-baseweb="popover"] [role="listbox"] {           /* dropdown menu */
+      background-color: #343A40 !important;
+      color: var(--text) !important;
+      border: 1px solid var(--border-strong) !important;
+    }
+
+    .stTextArea textarea{ min-height:80px; max-height:80px; }
+
+        .stButton > button{
+      background: linear-gradient(90deg, var(--btn1), var(--btn2)) !important;
+      color:#fff; border:none; border-radius:12px;
+      box-shadow:0 8px 18px rgba(0,0,0,.25);
+      transition: transform .08s ease, box-shadow .12s ease, background .12s ease;
+    }
+    .stButton > button:hover{
+      background: linear-gradient(90deg, var(--btn1-hover), var(--btn2-hover)) !important;
+      transform: translateY(-1px);
+      box-shadow:0 10px 24px rgba(0,0,0,.32);
+    }
+    .stButton > button:active{
+      background: linear-gradient(90deg, var(--btn1-active), var(--btn2-active)) !important;
+      transform: translateY(0);
+    }
+    .stButton > button:disabled{
+      background: linear-gradient(90deg, #4b5563, #374151) !important;
+      color:#E5E7EB; box-shadow:none;
+    }
+
+    /* Tabs & tables */
+    .stTabs [data-baseweb="tab"] { font-weight:700; color:var(--sub); }
+    .stTabs [aria-selected="true"] { color:var(--text); border-bottom:2px solid var(--btn1); }
+    .stDataFrame{ border:1px solid var(--border-strong); border-radius:12px; overflow:hidden; }
+
+    /* Keep plot trace colors default; only make labels readable on dark */
+    .js-plotly-plot .plotly .xtick text,
+    .js-plotly-plot .plotly .ytick text,
+    .js-plotly-plot .plotly .legend text,
+    .js-plotly-plot .plotly .gtitle,
+    .js-plotly-plot .plotly .sankey text,
+    .js-plotly-plot .plotly .sankey .node text{
+      fill: #FFFFFF !important; font-weight:700 !important;
+    }
+
+    /* Drug filters header z-order */
+    .drug-filters { position: relative; z-index: 5; margin-top: 10px; }
+
+    /* Responsive tweaks */
+    @media (max-width: 900px){
+      .block-container { padding-top: 2.2rem !important; }
+      .hero h1{ font-size:1.35rem; }
+      .stTextArea textarea{ min-height:120px; max-height:160px; }
+      [data-testid="column"]{ width:100% !important; flex: 1 1 100% !important; }
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# Top header (branding)
+# ---------- Top header / hero ----------
+def render_logo():
+    for p in ("logoo.png", "logo.png", "assets/logo.png"):
+        if Path(p).exists():
+            st.image(p, width=96)
+            return
+    st.markdown("### 💊")
+
 left, right = st.columns([1, 9])
 with left:
-    st.image("logo.png", width=110)
+    render_logo()
 with right:
-    st.markdown("### Gene2Therapy")
-    st.caption("Gene → Enrichment → Disease → Drug repurposing")
-
-st.divider()
+    st.markdown(
+        """
+        <div class="hero">
+          <h1>Gene2Therapy</h1>
+          <p>Fast annotations → enrichment → diseases → drug repurposing (OpenTargets)</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # ----------------------------
-# Helper: load genes from any supported input
+# Helpers
 # ----------------------------
 def load_genes_from_any(uploaded_file) -> list[str]:
     """
@@ -80,7 +278,6 @@ def load_genes_from_any(uploaded_file) -> list[str]:
                 break
         return out
 
-    # Try dataframe-like formats first
     try:
         if name.endswith((".csv", ".csv.gz")):
             df = pd.read_csv(uploaded_file, compression="infer")
@@ -102,9 +299,8 @@ def load_genes_from_any(uploaded_file) -> list[str]:
                 target_col = df.columns[0]
             return _clean_series_to_genes(df[target_col])
     except Exception:
-        pass  # fall back to plain text parsing
+        pass
 
-    # Plain text list
     try:
         try:
             uploaded_file.seek(0)
@@ -120,11 +316,11 @@ def load_genes_from_any(uploaded_file) -> list[str]:
 # Sidebar
 # ----------------------------
 with st.sidebar:
-    st.markdown("### 🧪 BioContext")
-    st.caption("Gene metadata, pathway enrichment, disease links & drug repurposing")
+    st.markdown('<div class="sidebar-title">🧪 BioContext</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-tip">Gene metadata, pathway enrichment, disease links & drug repurposing</div>', unsafe_allow_html=True)
     st.markdown("---")
     st.markdown("**Tips**")
-    st.markdown("- Keep gene lists modest (≤100) to avoid API throttling.\n- Re-run if APIs rate-limit (we cache results for 1h).")
+    st.markdown("- Keep gene lists modest (≤100) to avoid API throttling.\n- Re-run if APIs rate-limit (cache = 1h).")
 
 # ----------------------------
 # Caching helpers – KEGG / NCBI
@@ -195,7 +391,7 @@ OT_GQL = "https://api.platform.opentargets.org/api/v4/graphql"
 @st.cache_data(ttl=3600)
 def ot_query(query: str, variables: dict | None = None) -> dict:
     try:
-        r = requests.post(OT_GQL, json={"query": query, "variables": variables or {}}, timeout=40)
+        r = requests.post(OT_GQL, json={"query": query, "variables": variables or {}})
         data = r.json()
         if r.status_code >= 400 or (isinstance(data, dict) and data.get("errors") and not data.get("data")):
             return {}
@@ -372,52 +568,53 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
 # ----------------------------
 # UI – Inputs
 # ----------------------------
-st.markdown("### 🔧 Input")
-st.markdown("Upload a gene list (CSV/TSV/XLSX/TXT) or paste genes, then explore annotations, enrichment, diseases, and drugs.")
+with st.container():
+    st.markdown('<div class="section-title"><span class="icon">🔧</span>Input</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hint">Upload a gene list (CSV/TSV/XLSX/TXT) or paste genes, then explore annotations, enrichment, diseases, and drugs.</div>', unsafe_allow_html=True)
 
-email = st.text_input("NCBI Entrez email (required)", value="", help="NCBI asks for a contact email for E-Utilities.")
-if email:
-    Entrez.email = email
+    email = st.text_input("NCBI Entrez email (required)", value="", help="NCBI asks for a contact email for E-Utilities.")
+    if email:
+        Entrez.email = email
 
-organisms = {
-    "Homo sapiens (human)": {"entrez": "Homo sapiens", "kegg": "hsa"},
-    "Mus musculus (mouse)": {"entrez": "Mus musculus", "kegg": "mmu"},
-    "Rattus norvegicus (rat)": {"entrez": "Rattus norvegicus", "kegg": "rno"},
-}
-org_label = st.selectbox("Organism", list(organisms.keys()), index=0)
-organism_entrez = organisms[org_label]["entrez"]
-kegg_org_prefix = organisms[org_label]["kegg"]
+    organisms = {
+        "Homo sapiens (human)": {"entrez": "Homo sapiens", "kegg": "hsa"},
+        "Mus musculus (mouse)": {"entrez": "Mus musculus", "kegg": "mmu"},
+        "Rattus norvegicus (rat)": {"entrez": "Rattus norvegicus", "kegg": "rno"},
+    }
+    org_label = st.selectbox("Organism", list(organisms.keys()), index=0)
+    organism_entrez = organisms[org_label]["entrez"]
+    kegg_org_prefix = organisms[org_label]["kegg"]
 
-st.markdown("#### Input Options")
-uploaded = st.file_uploader(
-    "Upload gene list - csv, tsv, txt, xlsx",
-    type=["csv", "tsv", "txt", "xlsx"]
-)
-manual_input = st.text_area(
-    "Or paste gene symbols here (comma, space, or newline separated):",
-    placeholder="e.g. TP53, BRCA1, EGFR, MYC"
-)
+    col_u, col_p = st.columns(2)
+    with col_u:
+        uploaded = st.file_uploader("Upload gene list - csv, tsv, txt, xlsx", type=["csv", "tsv", "txt", "xlsx"])
+    with col_p:
+        manual_input = st.text_area(
+            "Or paste gene symbols here (comma, space, or newline separated):",
+            placeholder="e.g. TP53, BRCA1, EGFR, MYC",
+            height=80,
+        )
 
-# ---- Drug filters (applied in the Drug Suggestions tab)
-st.markdown("#### Drug filters (applied in the Drug Suggestions tab)")
-opt_only_phase4 = st.checkbox(
-    "Show only approved drugs (Phase 4)",
-    value=True,
-    help="Filters to max_phase ≥ 4."
-)
-
-genes_from_input: list[str] = []
-if manual_input.strip():
-    genes_from_input = (
-        pd.Series([manual_input])
-        .str.replace(r"[,;|\t ]+", "\n", regex=True)
-        .str.split("\n").explode().str.strip().str.upper()
+    st.markdown('<h4 class="drug-filters">Drug filters (applied in the Drug Suggestions tab)</h4>', unsafe_allow_html=True)
+    opt_only_phase4 = st.checkbox(
+        "Show only approved drugs (Phase 4)",
+        value=True,
+        help="Filters to max_phase ≥ 4."
     )
-    genes_from_input = [g for g in genes_from_input.tolist() if g][:200]
-elif uploaded is not None:
-    genes_from_input = load_genes_from_any(uploaded)
 
-run_btn = st.button("▶️ Analyze", type="primary", disabled=(not genes_from_input or not email))
+    genes_from_input: list[str] = []
+    if manual_input.strip():
+        genes_from_input = (
+            pd.Series([manual_input])
+            .str.replace(r"[,;|\t ]+", "\n", regex=True)
+            .str.split("\n").explode().str.strip().str.upper()
+        )
+        genes_from_input = [g for g in genes_from_input.tolist() if g][:200]
+    elif uploaded is not None:
+        genes_from_input = load_genes_from_any(uploaded)
+
+    run_btn = st.button("▶️ Analyze", type="primary", disabled=(not genes_from_input or not email))
+
 st.divider()
 
 # ----------------------------
@@ -428,7 +625,7 @@ meta_tab, enrich_tab, disease_tab, drug_tab, viz_tab = st.tabs([
 ])
 
 if run_btn:
-    # -------- Load genes --------
+    # Load genes
     try:
         genes = genes_from_input
         if not genes:
@@ -439,9 +636,9 @@ if run_btn:
         st.error(f"Could not read input: {e}")
         st.stop()
 
-    # -------- Step 1: Metadata --------
+    # Step 1
     with meta_tab:
-        st.markdown('<div class="section-title">Step 1 — NCBI + KEGG annotations</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title"><span class="icon">📇</span>Step 1 — NCBI + KEGG annotations</div>', unsafe_allow_html=True)
         progress = st.progress(0.0)
         with st.spinner("Querying NCBI and KEGG..."):
             df_meta, pathway_to_genes = fetch_gene_metadata_and_kegg(
@@ -462,9 +659,9 @@ if run_btn:
         else:
             st.info("No metadata found for the provided gene list.")
 
-    # -------- Step 2: Enrichment (counts-only) --------
+    # Step 2
     with enrich_tab:
-        st.markdown('<div class="section-title">Step 2 — Pathway Enrichment (counts-only)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title"><span class="icon">📊</span>Step 2 — Pathway Enrichment (counts-only)</div>', unsafe_allow_html=True)
         with st.spinner("Summarizing pathway hits..."):
             df_enrich = compute_enrichment_counts_only(pathway_to_genes)
 
@@ -488,9 +685,9 @@ if run_btn:
             except Exception:
                 pass
 
-    # -------- Step 3: Disease Links --------
+    # Step 3
     with disease_tab:
-        st.markdown('<div class="section-title">Step 3 — Disease Associations (OpenTargets)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title"><span class="icon">🧬</span>Step 3 — Disease Associations (OpenTargets)</div>', unsafe_allow_html=True)
         with st.spinner("Mapping symbols to Ensembl IDs and fetching disease links..."):
             g2t = build_gene_to_ot_target_map(genes, species="Homo sapiens")
             df_dis = collect_disease_links(g2t)
@@ -531,16 +728,15 @@ if run_btn:
             except Exception:
                 pass
 
-    # -------- Step 4: Drug Suggestions --------
+    # Step 4
     with drug_tab:
-        st.markdown('<div class="section-title">Step 4 — Repurposable Drug Suggestions</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title"><span class="icon">💊</span>Step 4 — Repurposable Drug Suggestions</div>', unsafe_allow_html=True)
         with st.spinner("Fetching known drugs targeting your genes..."):
             df_drugs = collect_drug_suggestions(g2t)
 
         if df_drugs.empty:
             st.info("No drugs found for the mapped targets.")
         else:
-            # Rank per-row by phase (robust cast), then aggregate
             df_drugs["phase_rank"] = pd.to_numeric(df_drugs["phase"], errors="coerce").fillna(0).astype(int)
 
             drug_sum = (
@@ -553,25 +749,20 @@ if run_btn:
                 ).reset_index()
             )
 
-            # Internal approval flag based on Phase 4
             drug_sum["max_phase"] = pd.to_numeric(drug_sum["max_phase"], errors="coerce").fillna(0).astype(int)
             drug_sum["approved"] = drug_sum["max_phase"] >= 4
 
-            # If user wants only approved, filter now
             if opt_only_phase4:
                 drug_sum = drug_sum[drug_sum["approved"] == True]
 
-            # Sort and show
             drug_sum = drug_sum.sort_values(
                 ["approved", "max_phase", "drug_name"],
                 ascending=[False, False, True]
             )
 
             if drug_sum.empty:
-                msg = "No drugs met the selected filters. Tip: uncheck 'Show only approved (Phase 4)' to see investigational candidates."
-                st.info(msg)
+                st.info("No drugs met the selected filters. Tip: uncheck 'Show only approved (Phase 4)' to see investigational candidates.")
             else:
-                # Display (with a serial '#'), omitting approved_phase4 and drugcentral_approved
                 showRx = drug_sum.copy()
                 showRx.insert(0, "#", range(1, len(showRx) + 1))
                 cols_order = [c for c in [
@@ -581,7 +772,6 @@ if run_btn:
                 other_cols = [c for c in showRx.columns if c not in cols_order]
                 st.dataframe(showRx[cols_order + other_cols], use_container_width=True, hide_index=True)
 
-            # Raw downloads
             st.download_button(
                 "⬇️ Download drug suggestions (per target)",
                 data=df_drugs.to_csv(index=False).encode("utf-8"),
@@ -595,12 +785,11 @@ if run_btn:
                 mime="text/csv"
             )
 
-    # -------- Step 5: Visualizations --------
+    # Step 5
     with viz_tab:
-        st.markdown('<div class="section-title">Step 5 — Visualize the landscape</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title"><span class="icon">🌐</span>Step 5 — Visualize the landscape</div>', unsafe_allow_html=True)
         colA, colB = st.columns(2)
 
-        # Sankey: Genes → Diseases (top 10) → Drugs (optional)
         with colA:
             try:
                 if 'df_dis' in locals() and not df_dis.empty:
@@ -649,7 +838,6 @@ if run_btn:
             except Exception as e:
                 st.warning(f"Sankey could not be drawn: {e}")
 
-        # Network: Pathway ↔ Genes (top pathways)
         with colB:
             try:
                 if 'df_enrich' in locals() and not df_enrich.empty:
