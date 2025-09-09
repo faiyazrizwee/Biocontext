@@ -28,7 +28,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ---- Theme toggle (put near the top, after st.set_page_config) ----
+# ---- Theme toggle (after set_page_config) ----
 mode = st.sidebar.toggle("🌗 Light theme", value=False)  # False = Dark (default)
 THEME = "light" if mode else "dark"
 
@@ -41,25 +41,24 @@ def build_css(theme: str) -> str:
         muted = "#4b5563"; sub = "#374151"
         border = "#e6eaf2"; border_strong = "#cbd5e1"
         input_bg = "#ffffff"; placeholder = "#6b7280"
-        # Analyze button palette (requested)
+        uploader_bg = "#ffffff"  # force white in light
+        # Analyze button palette
         btn1, btn2 = "#4338ca", "#2563eb"
         btn1_h, btn2_h = "#3730a3", "#1d4ed8"
         btn1_a, btn2_a = "#312e81", "#1e40af"
-        # Hero gradient (nice, light)
         hero_bg = "linear-gradient(135deg, #eef2ff 0%, #e0f2fe 100%)"
         hero1, hero2 = "#1f2937", "#6b7280"
         success_bg = "#CBEED7"  # ~10% darker than default success
     else:
-        # Dark tokens (original)
+        # Dark tokens
         bg = "#212529"; panel = "#343A40"; text = "#FFFFFF"
         muted = "#E5E7EB"; sub = "#D1D5DB"
         border = "#252525"; border_strong = "#3A3A3A"
         input_bg = "#343A40"; placeholder = "#9AA0A6"
-        # Analyze button palette (emerald)
+        uploader_bg = "#343A40"
         btn1, btn2 = "#0f766e", "#10b981"
         btn1_h, btn2_h = "#115e59", "#059669"
         btn1_a, btn2_a = "#0b534b", "#047857"
-        # Hero gradient (subtle, dark)
         hero_bg = "linear-gradient(135deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.02) 100%)"
         hero1, hero2 = "#FFFFFF", "#B3B3B3"
         success_bg = "rgba(16,185,129,.22)"
@@ -73,6 +72,7 @@ def build_css(theme: str) -> str:
     --muted:{muted}; --sub:{sub};
     --border:{border}; --border-strong:{border_strong};
     --input-bg:{input_bg}; --placeholder:{placeholder};
+    --uploader-bg:{uploader_bg};
     --btn1:{btn1}; --btn2:{btn2};
     --btn1-hover:{btn1_h}; --btn2-hover:{btn2_h};
     --btn1-active:{btn1_a}; --btn2-active:{btn2_a};
@@ -84,8 +84,7 @@ def build_css(theme: str) -> str:
   /* App surface + global text */
   .stApp {{ background:var(--bg); color:var(--text);
     font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Ubuntu,'Helvetica Neue',Arial; }}
-  header[data-testid="stHeader"],
-  header[data-testid="stHeader"] * {{ background: var(--bg) !important; }}
+  header[data-testid="stHeader"], header[data-testid="stHeader"] * {{ background: var(--bg) !important; }}
   .block-container {{ padding-top:3.6rem !important; padding-bottom:2rem; }}
 
   /* Sidebar */
@@ -102,82 +101,67 @@ def build_css(theme: str) -> str:
             -webkit-background-clip:text;background-clip:text;color:transparent; }}
   .hero p{{ margin:.25rem 0 0 0;color:var(--sub); }}
 
-  /* Make ALL app text honor theme color (fixes white text in light mode) */
+  /* Force all text to follow theme (fixes white text in light mode) */
   .stMarkdown, .stMarkdown * , label, [data-testid="stCheckbox"] *, [data-testid="stSelectbox"] *,
   [data-testid="stRadio"] *, [data-testid="stSlider"] *, .stTabs [data-baseweb="tab"],
   .stDataFrame * {{ color:var(--text) !important; }}
 
   /* ---- Inputs ----------------------------------------------------- */
-  /* Text input wrapper + input */
-  .stTextInput>div>div {{
-    background-color:var(--input-bg) !important;
-    border:1.5px solid var(--border-strong) !important;
-    border-radius:12px !important;
-  }}
-  .stTextInput>div>div>input {{
-    background-color:var(--input-bg) !important;
-    color:var(--text) !important;
-  }}
-  /* Keep same bg on focus/typing */
+  .stTextInput>div>div {{ background-color:var(--input-bg) !important;
+    border:1.5px solid var(--border-strong) !important; border-radius:12px !important; }}
+  .stTextInput>div>div>input {{ background-color:var(--input-bg) !important; color:var(--text) !important; }}
   .stTextInput>div>div:focus-within {{ box-shadow:none !important; }}
 
-  /* Chrome/Safari autofill fix (prevents gray/yellow fill) */
-  input:-webkit-autofill,
-  input:-webkit-autofill:focus,
-  input:-webkit-autofill:hover {{
+  /* Autofill background fix */
+  input:-webkit-autofill, input:-webkit-autofill:focus, input:-webkit-autofill:hover {{
     -webkit-text-fill-color: var(--text) !important;
     -webkit-box-shadow: 0 0 0 1000px var(--input-bg) inset !important;
             box-shadow: 0 0 0 1000px var(--input-bg) inset !important;
-    caret-color: var(--text) !important;
-    transition: background-color 9999s ease-out 0s; /* suppress flash */
+    caret-color: var(--text) !important; transition: background-color 9999s ease-out 0s;
   }}
 
-  /* --- Make "Press Enter to apply" visible in both themes --- */
-  /* Streamlit puts that text in a small aria-live region next to the input */
+  /* Show "Press Enter to apply" */
   .stTextInput [data-testid="stTextInputInstructions"],
-  .stTextInput div[aria-live="polite"],
-  .stTextInput small {{
-    color: var(--placeholder, #6b7280) !important;  /* fallback ensures no linter noise */
-    opacity: .95 !important;
+  .stTextInput div[aria-live="polite"], .stTextInput small {{
+    color: var(--placeholder, #6b7280) !important; opacity: .95 !important;
   }}
-  /* If some builds place it inside the wrapper, keep it click-safe */
   .stTextInput div[aria-live="polite"] {{ pointer-events: none; }}
 
-  /* Text area (wrapper + element) */
-  .stTextArea [data-baseweb="textarea"],
-  .stTextArea > div > div {{
-    background-color:var(--input-bg) !important;
-    border:1.5px solid var(--border-strong) !important;
-    border-radius:12px !important; box-shadow:none !important;
-  }}
-  .stTextArea textarea,
-  .stTextArea [data-baseweb="textarea"] > textarea {{
-    background-color:var(--input-bg) !important; color:var(--text) !important;
-  }}
-  .stTextInput input::placeholder, .stTextArea textarea::placeholder {{
-    color:var(--placeholder) !important; opacity:1;
-  }}
+  /* Text area */
+  .stTextArea [data-baseweb="textarea"], .stTextArea > div > div {{
+    background-color:var(--input-bg) !important; border:1.5px solid var(--border-strong) !important;
+    border-radius:12px !important; box-shadow:none !important; }}
+  .stTextArea textarea, .stTextArea [data-baseweb="textarea"] > textarea {{
+    background-color:var(--input-bg) !important; color:var(--text) !important; }}
+  .stTextInput input::placeholder, .stTextArea textarea::placeholder {{ color:var(--placeholder) !important; opacity:1; }}
 
-  /* ===== File uploader: color + click behavior ===== */
+  /* ===== File uploader =====
+     1) White (light) / dark (dark) surface
+     2) Text/icons use theme color
+     3) Disable drag-and-drop & background clicks — ONLY the Browse button works
+  */
   .stFileUploader [data-testid="stFileUploaderDropzone"] {{
-    background-color:var(--input-bg) !important;
+    background-color: var(--uploader-bg) !important;
     border:1.5px dashed var(--border-strong) !important;
     border-radius:12px !important; box-shadow:none !important;
   }}
-  /* Remove inner wrappers’ own backgrounds so the outer color shows */
+  /* kill inner wrapper backgrounds to stop dark overlay in light theme */
   .stFileUploader [data-testid="stFileUploaderDropzone"] > div,
   .stFileUploader [data-testid="stFileUploaderDropzone"] > div > div,
   .stFileUploader [data-testid="stFileUploaderDropzone"]::before,
   .stFileUploader [data-testid="stFileUploaderDropzone"]::after {{ background:transparent !important; }}
-  /* Keep text/icons readable */
-  .stFileUploader [data-testid="stFileUploaderDropzone"] * {{ color:var(--text) !important; }}
-  /* Disable large overlay so ONLY the explicit button works */
+
+  /* make text/icons fully readable */
+  .stFileUploader [data-testid="stFileUploaderDropzone"] * {{ color:var(--text) !important; opacity:1 !important; }}
+  .stFileUploader [data-testid="stFileUploaderDropzone"] svg path {{ fill: var(--text) !important; }}
+
+  /* Disable clicks & drops on the big zone/overlay */
   .stFileUploader [data-testid="stFileUploaderDropzone"] [role="button"],
   .stFileUploader [data-testid="stFileUploaderDropzone"] label,
   .stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"] {{
     pointer-events:none !important; cursor:default !important;
   }}
-  /* Re-enable just the Browse button */
+  /* Re-enable just the explicit Browse button */
   .stFileUploader [data-testid="stFileUploaderDropzone"] button,
   .stFileUploader [data-testid="stFileUploaderDropzone"] button * {{
     pointer-events:auto !important; cursor:pointer !important; position:relative; z-index:2;
@@ -185,13 +169,9 @@ def build_css(theme: str) -> str:
 
   /* Selectbox surface + menu */
   .stSelectbox [data-baseweb="select"] > div {{
-    background-color:var(--input-bg) !important; border:1.5px solid var(--border-strong) !important;
-    border-radius:12px !important;
-  }}
-  [data-baseweb="popover"] [role="listbox"] {{
-    background-color:var(--input-bg) !important; color:var(--text) !important;
-    border:1px solid var(--border-strong) !important;
-  }}
+    background-color:var(--input-bg) !important; border:1.5px solid var(--border-strong) !important; border-radius:12px !important; }}
+  [data-baseweb="popover"] [role="listbox"] {{ background-color:var(--input-bg) !important; color:var(--text) !important;
+    border:1px solid var(--border-strong) !important; }}
 
   /* Buttons (Analyze) */
   .stButton > button{{ border-radius:12px;font-weight:700;padding:.6rem 1rem;
@@ -205,7 +185,7 @@ def build_css(theme: str) -> str:
   .stTabs [aria-selected="true"]{{ color:var(--text); border-bottom:2px solid var(--btn1); }}
   .stDataFrame{{ border:1px solid var(--border-strong); border-radius:12px; overflow:hidden; }}
 
-  /* Alerts (success/info/error). Only adjust success background/tint */
+  /* Alerts – success tint */
   div[role="alert"]{{ background:var(--success-bg) !important; color:var(--text) !important; }}
 
   /* Plot text readable */
@@ -249,7 +229,6 @@ def render_logo():
             st.image(p, width=96)
             return
     st.markdown("### 💊")
-
 
 left, right = st.columns([1, 9])
 with left:
