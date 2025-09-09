@@ -27,9 +27,11 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
 # ---- Theme toggle (put near the top, after st.set_page_config) ----
 mode = st.sidebar.toggle("🌗 Light theme", value=False)  # False = Dark (default)
 THEME = "light" if mode else "dark"
+
 
 # ---- Build CSS for the chosen theme ----
 def build_css(theme: str) -> str:
@@ -46,6 +48,7 @@ def build_css(theme: str) -> str:
         # Hero gradient (nice, light)
         hero_bg = "linear-gradient(135deg, #eef2ff 0%, #e0f2fe 100%)"
         hero1, hero2 = "#1f2937", "#6b7280"
+        success_bg = "#CBEED7"  # ~10% darker than default success
     else:
         # Dark tokens (original)
         bg = "#212529"; panel = "#343A40"; text = "#FFFFFF"
@@ -59,6 +62,7 @@ def build_css(theme: str) -> str:
         # Hero gradient (subtle, dark)
         hero_bg = "linear-gradient(135deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.02) 100%)"
         hero1, hero2 = "#FFFFFF", "#B3B3B3"
+        success_bg = "rgba(16,185,129,.22)"
 
     return f"""
     <style>
@@ -73,11 +77,14 @@ def build_css(theme: str) -> str:
       --btn1-hover:{btn1_h}; --btn2-hover:{btn2_h};
       --btn1-active:{btn1_a}; --btn2-active:{btn2_a};
       --hero1:{hero1}; --hero2:{hero2};
+      --hero-bg:{hero_bg};
+      --success-bg:{success_bg};
     }}
 
     /* App surface + global text */
     .stApp {{ background:var(--bg); color:var(--text);
       font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Ubuntu,'Helvetica Neue',Arial; }}
+    header[data-testid="stHeader"] {{ background: var(--bg) !important; }}
     .block-container {{ padding-top:3.6rem !important; padding-bottom:2rem; }}
 
     /* Sidebar */
@@ -89,7 +96,7 @@ def build_css(theme: str) -> str:
 
     /* Hero */
     .hero{{ margin-top:.25rem;margin-bottom:.9rem;padding:18px 20px;
-            border:1px solid var(--border);border-radius:18px;background:{hero_bg}; }}
+            border:1px solid var(--border);border-radius:18px;background:var(--hero-bg); }}
     .hero h1{{ margin:0;font-weight:800;letter-spacing:.2px;font-size:1.7rem;
                background:linear-gradient(90deg,var(--hero1),var(--hero2));
                -webkit-background-clip:text;background-clip:text;color:transparent; }}
@@ -100,8 +107,19 @@ def build_css(theme: str) -> str:
     [data-testid="stRadio"] *, [data-testid="stSlider"] *, .stTabs [data-baseweb="tab"],
     .stDataFrame * {{ color:var(--text) !important; }}
 
-    /* Inputs */
-    .stTextInput>div>div>input,
+    /* ---- Inputs ----------------------------------------------------- */
+    /* Text input wrapper + input */
+    .stTextInput>div>div {{
+      background-color:var(--input-bg) !important;
+      border:1.5px solid var(--border-strong) !important;
+      border-radius:12px !important;
+    }}
+    .stTextInput>div>div>input {{
+      background-color:var(--input-bg) !important;
+      color:var(--text) !important;
+    }}
+
+    /* Text area (wrapper + element) */
     .stTextArea [data-baseweb="textarea"],
     .stTextArea > div > div {{
       background-color:var(--input-bg) !important;
@@ -166,6 +184,9 @@ def build_css(theme: str) -> str:
     .stTabs [aria-selected="true"]{{ color:var(--text); border-bottom:2px solid var(--btn1); }}
     .stDataFrame{{ border:1px solid var(--border-strong); border-radius:12px; overflow:hidden; }}
 
+    /* Alerts (success/info/error). Only adjust success background/tint */
+    div[role="alert"]{{ background:var(--success-bg) !important; color:var(--text) !important; }}
+
     /* Plot text readable */
     .js-plotly-plot .plotly .xtick text,
     .js-plotly-plot .plotly .ytick text,
@@ -184,8 +205,20 @@ def build_css(theme: str) -> str:
     </style>
     """
 
+
 # ---- Inject CSS for the selected theme ----
 st.markdown(build_css(THEME), unsafe_allow_html=True)
+
+
+# ---- Plotly theming helper ----
+def apply_plotly_theme(fig: go.Figure) -> go.Figure:
+    light = THEME == "light"
+    fig.update_layout(
+        paper_bgcolor="#ffffff" if light else "#111827",
+        plot_bgcolor="#ffffff" if light else "#111827",
+        font_color="#0f172a" if light else "#ffffff",
+    )
+    return fig
 
 
 # ---------- Top header / hero ----------
@@ -641,6 +674,7 @@ if run_btn:
                 topN = df_enrich.head(15).copy()
                 fig = px.bar(topN, x="Count", y="Pathway_Name", orientation="h", title="Top pathways by gene hits")
                 fig.update_layout(height=600)
+                fig = apply_plotly_theme(fig)
                 st.plotly_chart(fig, use_container_width=True)
             except Exception:
                 pass
@@ -684,6 +718,7 @@ if run_btn:
                 figd = px.bar(topD, x="n_genes", y="disease_name", orientation="h",
                               title="Top disease associations (by # genes)")
                 figd.update_layout(height=650)
+                figd = apply_plotly_theme(figd)
                 st.plotly_chart(figd, use_container_width=True)
             except Exception:
                 pass
@@ -789,11 +824,21 @@ if run_btn:
                         sources = [s for s, _, _ in links]
                         targets = [t for _, t, _ in links]
                         values = [v for *_, v in links]
+
+                        light = THEME == "light"
+                        node_color = "#e5e7eb" if light else "#1f2937"
+                        link_color = "rgba(37,99,235,.35)" if light else "rgba(255,255,255,.25)"
+                        border_col = "#cbd5e1" if light else "#111827"
+
                         fig_sankey = go.Figure(data=[go.Sankey(
-                            node=dict(pad=12, thickness=14, label=nodes),
-                            link=dict(source=sources, target=targets, value=values),
+                            node=dict(
+                                pad=12, thickness=14, label=nodes,
+                                color=node_color, line=dict(color=border_col, width=1)
+                            ),
+                            link=dict(source=sources, target=targets, value=values, color=link_color)
                         )])
                         fig_sankey.update_layout(title_text="Gene → Disease (→ Drug) connections", height=700)
+                        fig_sankey = apply_plotly_theme(fig_sankey)
                         st.plotly_chart(fig_sankey, use_container_width=True)
             except Exception as e:
                 st.warning(f"Sankey could not be drawn: {e}")
@@ -826,6 +871,7 @@ if run_btn:
                             textposition='top center',
                         ))
                         fig_net.update_layout(title="Gene–Pathway network (top pathways by hit count)", height=700, showlegend=False)
+                        fig_net = apply_plotly_theme(fig_net)
                         st.plotly_chart(fig_net, use_container_width=True)
             except Exception as e:
                 st.warning(f"Network could not be drawn: {e}")
