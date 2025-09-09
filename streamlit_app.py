@@ -48,7 +48,7 @@ def build_css(theme: str) -> str:
         btn1_a, btn2_a = "#312e81", "#1e40af"
         hero_bg = "linear-gradient(135deg, #eef2ff 0%, #e0f2fe 100%)"
         hero1, hero2 = "#1f2937", "#6b7280"
-        success_bg = "#CBEED7"  # ~10% darker than default success
+        success_bg = "#CBEED7"
     else:
         # Dark tokens
         bg = "#212529"; panel = "#343A40"; text = "#FFFFFF"
@@ -101,7 +101,7 @@ def build_css(theme: str) -> str:
             -webkit-background-clip:text;background-clip:text;color:transparent; }}
   .hero p{{ margin:.25rem 0 0 0;color:var(--sub); }}
 
-  /* Force all text to follow theme (fixes white text in light mode) */
+  /* Force all text to follow theme */
   .stMarkdown, .stMarkdown * , label, [data-testid="stCheckbox"] *, [data-testid="stSelectbox"] *,
   [data-testid="stRadio"] *, [data-testid="stSlider"] *, .stTabs [data-baseweb="tab"],
   .stDataFrame * {{ color:var(--text) !important; }}
@@ -120,48 +120,53 @@ def build_css(theme: str) -> str:
     caret-color: var(--text) !important; transition: background-color 9999s ease-out 0s;
   }}
 
-  /* Show "Press Enter to apply" */
+  /* Show "Press Enter to apply" (covers multiple DOM variants) */
+  [data-testid="stTextInputInstructions"],
   .stTextInput [data-testid="stTextInputInstructions"],
-  .stTextInput div[aria-live="polite"], .stTextInput small {{
-    color: var(--placeholder, #6b7280) !important; opacity: .95 !important;
+  .stTextInput div[aria-live="polite"],
+  div[aria-live="polite"][data-testid="stTextInputInstructions"],
+  .stTextInput small,
+  div[aria-live="polite"] small {{
+    color: var(--placeholder, #6b7280) !important;
+    opacity: .95 !important;
   }}
   .stTextInput div[aria-live="polite"] {{ pointer-events: none; }}
 
   /* Text area */
   .stTextArea [data-baseweb="textarea"], .stTextArea > div > div {{
-    background-color:var(--input-bg) !important; border:1.5px solid var(--border-strong) !important;
+    background-color:var(--input-bg) !important;
+    border:1.5px solid var(--border-strong) !important;
     border-radius:12px !important; box-shadow:none !important; }}
   .stTextArea textarea, .stTextArea [data-baseweb="textarea"] > textarea {{
     background-color:var(--input-bg) !important; color:var(--text) !important; }}
   .stTextInput input::placeholder, .stTextArea textarea::placeholder {{ color:var(--placeholder) !important; opacity:1; }}
 
   /* ===== File uploader =====
-     1) White (light) / dark (dark) surface
-     2) Text/icons use theme color
-     3) Disable drag-and-drop & background clicks — ONLY the Browse button works
+     Force white surface in light, theme text, and disable drag-and-drop so only Browse works.
   */
-  .stFileUploader [data-testid="stFileUploaderDropzone"] {{
+  /* Paint ALL layers of the dropzone */
+  .stFileUploader [data-testid="stFileUploaderDropzone"],
+  .stFileUploader [data-testid="stFileUploaderDropzone"] *:not(button):not(button *),
+  .stFileUploader [data-testid="stFileUploaderDropzone"]::before,
+  .stFileUploader [data-testid="stFileUploaderDropzone"]::after,
+  .stFileUploader [data-testid="stFileUploaderDropzone"] > div,
+  .stFileUploader [data-testid="stFileUploaderDropzone"] > div > div {{
+    background: var(--uploader-bg) !important;
     background-color: var(--uploader-bg) !important;
+    filter: none !important;
+    color: var(--text) !important;
+  }}
+  .stFileUploader [data-testid="stFileUploaderDropzone"] svg path {{ fill: var(--text) !important; }}
+  .stFileUploader [data-testid="stFileUploaderDropzone"] {{
     border:1.5px dashed var(--border-strong) !important;
     border-radius:12px !important; box-shadow:none !important;
   }}
-  /* kill inner wrapper backgrounds to stop dark overlay in light theme */
-  .stFileUploader [data-testid="stFileUploaderDropzone"] > div,
-  .stFileUploader [data-testid="stFileUploaderDropzone"] > div > div,
-  .stFileUploader [data-testid="stFileUploaderDropzone"]::before,
-  .stFileUploader [data-testid="stFileUploaderDropzone"]::after {{ background:transparent !important; }}
 
-  /* make text/icons fully readable */
-  .stFileUploader [data-testid="stFileUploaderDropzone"] * {{ color:var(--text) !important; opacity:1 !important; }}
-  .stFileUploader [data-testid="stFileUploaderDropzone"] svg path {{ fill: var(--text) !important; }}
-
-  /* Disable clicks & drops on the big zone/overlay */
-  .stFileUploader [data-testid="stFileUploaderDropzone"] [role="button"],
+  /* Disable zone-wide click + drop, but keep the Browse button active */
+  .stFileUploader [data-testid="stFileUploaderDropzone"] > div:not(:has(button)) {{ pointer-events:none !important; }}
+  .stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"],
   .stFileUploader [data-testid="stFileUploaderDropzone"] label,
-  .stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"] {{
-    pointer-events:none !important; cursor:default !important;
-  }}
-  /* Re-enable just the explicit Browse button */
+  .stFileUploader [data-testid="stFileUploaderDropzone"] [role="button"] {{ pointer-events:none !important; }}
   .stFileUploader [data-testid="stFileUploaderDropzone"] button,
   .stFileUploader [data-testid="stFileUploaderDropzone"] button * {{
     pointer-events:auto !important; cursor:pointer !important; position:relative; z-index:2;
