@@ -175,7 +175,7 @@ def build_css(theme: str) -> str:
   /* Selectbox surface + menu */
   .stSelectbox [data-baseweb="select"] > div {{
     background-color:var(--input-bg) !important; border:1.5px solid var(--border-strong) !important; border-radius:12px !important; }}
-  [data-testid="popover"] [role="listbox"] {{ background-color:var(--input-bg) !important; color:var(--text) !important;
+  [data-baseweb="popover"] [role="listbox"] {{ background-color:var(--input-bg) !important; color:var(--text) !important;
     border:1px solid var(--border-strong) !important; }}
 
   /* Buttons (Analyze) */
@@ -185,41 +185,6 @@ def build_css(theme: str) -> str:
   .stButton > button:hover{{ background:linear-gradient(90deg,var(--btn1-hover),var(--btn2-hover)) !important;
     transform:translateY(-1px); box-shadow:0 10px 24px rgba(0,0,0,.32); }}
   .stButton > button:active{{ background:linear-gradient(90deg,var(--btn1-active),var(--btn2-active)) !important; }}
-
-  /* ===== NEW: Make Download buttons visible (match Analyze) ===== */
-  .stDownloadButton > button{{
-    border-radius:12px;
-    font-weight:700;
-    padding:.55rem 1rem;
-    background:linear-gradient(90deg,var(--btn1),var(--btn2)) !important;
-    color:#fff !important;
-    border:none !important;
-    box-shadow:0 8px 18px rgba(0,0,0,.25);
-    transition:transform .08s, box-shadow .12s, background .12s;
-  }}
-  .stDownloadButton > button:hover{{
-    background:linear-gradient(90deg,var(--btn1-hover),var(--btn2-hover)) !important;
-    transform:translateY(-1px);
-    box-shadow:0 10px 24px rgba(0,0,0,.32);
-  }}
-  .stDownloadButton > button:active{{
-    background:linear-gradient(90deg,var(--btn1-active),var(--btn2-active)) !important;
-  }}
-  .stDownloadButton > button[disabled]{{
-    opacity:.6; box-shadow:none; transform:none;
-  }}
-
-  /* ===== NEW: Force pure-white dropzone in LIGHT theme with higher specificity ===== */
-  :root[style*="--bg:#f7f8fb"] .stFileUploader [data-testid="stFileUploaderDropzone"],
-  :root[style*="--bg:#f7f8fb"] .stFileUploader [data-testid="stFileUploaderDropzone"] > div,
-  :root[style*="--bg:#f7f8fb"] .stFileUploader [data-testid="stFileUploaderDropzone"] > div > div{{
-    background:#ffffff !important;           /* hard white */
-    filter:none !important;
-  }}
-  :root[style*="--bg:#f7f8fb"] .stFileUploader [data-testid="stFileUploaderDropzone"]{{
-    border:1.5px dashed var(--border-strong) !important;  /* keep your gray border */
-    border-radius:12px !important;
-  }}
 
   /* Tabs/tables */
   .stTabs [aria-selected="true"]{{ color:var(--text); border-bottom:2px solid var(--btn1); }}
@@ -298,8 +263,8 @@ def load_genes_from_any(uploaded_file) -> list[str]:
     def _clean_series_to_genes(series: pd.Series) -> list[str]:
         vals = (
             series.dropna().astype(str)
-            .str.replace(r"[,;|\t ]+", "\\n", regex=True)
-            .str.split("\\n").explode()
+            .str.replace(r"[,;|\t ]+", "\n", regex=True)
+            .str.split("\n").explode()
         )
         vals = vals.astype(str).str.strip().str.upper()
         vals = vals[vals != ""]
@@ -316,7 +281,7 @@ def load_genes_from_any(uploaded_file) -> list[str]:
         if name.endswith((".csv", ".csv.gz")):
             df = pd.read_csv(uploaded_file, compression="infer")
         elif name.endswith((".tsv", ".tsv.gz")):
-            df = pd.read_csv(uploaded_file, sep="\\t", compression="infer")
+            df = pd.read_csv(uploaded_file, sep="\t", compression="infer")
         elif name.endswith((".xlsx", ".xls")):
             df = pd.read_excel(uploaded_file)
         else:
@@ -355,7 +320,7 @@ with st.sidebar:
     st.markdown('<div class="sidebar-tip">Gene metadata, pathway enrichment, disease links & drug repurposing</div>', unsafe_allow_html=True)
     st.markdown("---")
     st.markdown("**Tips**")
-    st.markdown("- Keep gene lists modest (≤100) to avoid API throttling.\\n- Re-run if APIs rate-limit (cache = 1h).")
+    st.markdown("- Keep gene lists modest (≤100) to avoid API throttling.\n- Re-run if APIs rate-limit (cache = 1h).")
 
 
 # ----------------------------
@@ -395,8 +360,8 @@ def kegg_ncbi_to_kegg_gene_id(ncbi_gene_id: str, kegg_org_prefix: str) -> str | 
     txt = kegg_get(f"/conv/genes/ncbi-geneid:{ncbi_gene_id}")
     if not txt.strip():
         return None
-    for line in txt.strip().split("\\n"):
-        parts = line.split("\\t")
+    for line in txt.strip().split("\n"):
+        parts = line.split("\t")
         if len(parts) == 2 and parts[0].endswith(f"{ncbi_gene_id}") and parts[1].startswith(f"{kegg_org_prefix}:"):
             return parts[1].strip()
     return None
@@ -408,8 +373,8 @@ def kegg_gene_pathways(kegg_gene_id: str) -> list[str]:
     if not txt.strip():
         return []
     pids = []
-    for line in txt.strip().split("\\n"):
-        parts = line.split("\\t")
+    for line in txt.strip().split("\n"):
+        parts = line.split("\t")
         if len(parts) == 2 and parts[1].startswith("path:"):
             pids.append(parts[1])
     return pids
@@ -419,7 +384,7 @@ def kegg_gene_pathways(kegg_gene_id: str) -> list[str]:
 def kegg_pathway_name(pathway_id: str) -> str | None:
     pid = pathway_id.replace("path:", "")
     txt = kegg_get(f"/get/{pid}")
-    for line in txt.split("\\n"):
+    for line in txt.split("\n"):
         if line.startswith("NAME"):
             return line.replace("NAME", "").strip()
     return None
@@ -659,8 +624,8 @@ with st.container():
     if manual_input.strip():
         genes_from_input = (
             pd.Series([manual_input])
-            .str.replace(r"[,;|\t ]+", "\\n", regex=True)
-            .str.split("\\n").explode().str.strip().str.upper()
+            .str.replace(r"[,;|\t ]+", "\n", regex=True)
+            .str.split("\n").explode().str.strip().str.upper()
         )
         genes_from_input = [g for g in genes_from_input.tolist() if g][:200]
     elif uploaded is not None:
