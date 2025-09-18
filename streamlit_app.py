@@ -29,7 +29,7 @@ st.set_page_config(
 )
 
 # ---- Theme toggle (after set_page_config) ----
-mode = st.sidebar.toggle("🌗 Change theme", value=False)  # False = Dark (default)
+mode = st.sidebar.toggle("🌗 Light theme", value=False)  # False = Dark (default)
 THEME = "light" if mode else "dark"
 
 
