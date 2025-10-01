@@ -1,9 +1,8 @@
 # streamlit_app.py
 # -------------------------------------------------------------
-# BioContext – Gene2Therapy (OpenTargets drugs)
-# Gene list → KEGG enrichment (counts-only) → Disease links (OpenTargets)
-# → Drug repurposing (Phase-4 filter from OpenTargets)
-# → Visualizations
+# Gene2Therapy – Dark Mode Optimized
+# Gene list → KEGG enrichment → Disease links → Drug repurposing
+# Enhanced API calls with better error handling and rate limiting
 # -------------------------------------------------------------
 
 import time
@@ -17,9 +16,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 import networkx as nx
 from pathlib import Path
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ----------------------------
-# App Config / Theming (MUST be first Streamlit call)
+# App Config (Dark Mode Only)
 # ----------------------------
 st.set_page_config(
     page_title="Gene2Therapy – BioContext",
@@ -28,319 +34,444 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ---- Theme toggle (after set_page_config) ----
-mode = st.sidebar.toggle("🌗 Light theme", value=False)  # False = Dark (default)
-THEME = "light" if mode else "dark"
-
-
-# ---- Build CSS for the chosen theme ----
-def build_css(theme: str) -> str:
-    if theme == "light":
-        # Light tokens
-        bg = "#f7f8fb"; panel = "#ffffff"; text = "#111827"
-        muted = "#4b5563"; sub = "#374151"
-        border = "#e6eaf2"; border_strong = "#cbd5e1"
-        input_bg = "#ffffff"; placeholder = "#6b7280"
-        uploader_bg = "#ffffff"  # force white in light
-        uploader_text = "#111827"  # dark text for light theme
-        uploader_border = "#cbd5e1"  # light theme border
-        # Analyze button palette
-        btn1, btn2 = "#4338ca", "#2563eb"
-        btn1_h, btn2_h = "#3730a3", "#1d4ed8"
-        btn1_a, btn2_a = "#312e81", "#1e40af"
-        hero_bg = "linear-gradient(135deg, #eef2ff 0%, #e0f2fe 100%)"
-        hero1, hero2 = "#1f2937", "#6b7280"
-        success_bg = "#CBEED7"
-    else:
-        # Dark tokens
-        bg = "#212529"; panel = "#343A40"; text = "#FFFFFF"
-        muted = "#E5E7EB"; sub = "#D1D5DB"
-        border = "#252525"; border_strong = "#3A3A3A"
-        input_bg = "#343A40"; placeholder = "#9AA0A6"
-        uploader_bg = "#343A40"
-        uploader_text = "#FFFFFF"  # white text for dark theme
-        uploader_border = "#3A3A3A"  # dark theme border
-        btn1, btn2 = "#0f766e", "#10b981"
-        btn1_h, btn2_h = "#115e59", "#059669"
-        btn1_a, btn2_a = "#0b534b", "#047857"
-        hero_bg = "linear-gradient(135deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.02) 100%)"
-        hero1, hero2 = "#FFFFFF", "#B3B3B3"
-        success_bg = "rgba(16,185,129,.22)"
-
-    return f"""
+# ----------------------------
+# Dark Theme CSS
+# ----------------------------
+def get_dark_theme_css():
+    return """
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-  :root {{
-    --bg:{bg}; --panel:{panel}; --text:{text};
-    --muted:{muted}; --sub:{sub};
-    --border:{border}; --border-strong:{border_strong};
-    --input-bg:{input_bg}; --placeholder:{placeholder};
-    --uploader-bg:{uploader_bg}; --uploader-text:{uploader_text}; --uploader-border:{uploader_border};
-    --btn1:{btn1}; --btn2:{btn2};
-    --btn1-hover:{btn1_h}; --btn2-hover:{btn2_h};
-    --btn1-active:{btn1_a}; --btn2-active:{btn2_a};
-    --hero1:{hero1}; --hero2:{hero2};
-    --hero-bg:{hero_bg};
-    --success-bg:{success_bg};
-  }}
+  :root {
+    --bg: #0f1419;
+    --panel: #1a1f2e;
+    --surface: #252b3a;
+    --text: #ffffff;
+    --text-muted: #b3b8c5;
+    --text-secondary: #8b92a5;
+    --border: #2d3748;
+    --border-strong: #4a5568;
+    --accent: #00d4aa;
+    --accent-hover: #00b894;
+    --accent-active: #00a085;
+    --secondary: #667eea;
+    --secondary-hover: #5a67d8;
+    --danger: #f56565;
+    --warning: #ed8936;
+    --success: #48bb78;
+    --input-bg: #2d3748;
+    --shadow: rgba(0, 0, 0, 0.3);
+  }
 
-  /* App surface + global text */
-  .stApp {{ background:var(--bg); color:var(--text);
-    font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Ubuntu,'Helvetica Neue',Arial; }}
-  header[data-testid="stHeader"], header[data-testid="stHeader"] * {{ background: var(--bg) !important; }}
-  .block-container {{ padding-top:3.6rem !important; padding-bottom:2rem; }}
+  /* Global Styles */
+  .stApp {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  /* Header */
+  header[data-testid="stHeader"] {
+    background: var(--bg) !important;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .block-container {
+    padding-top: 2rem !important;
+    padding-bottom: 2rem;
+    max-width: 1200px;
+  }
 
   /* Sidebar */
-  section[data-testid="stSidebar"]{{ background:var(--panel); color:var(--text); border-right:1px solid var(--border); }}
-  section[data-testid="stSidebar"] *{{ color:var(--text) !important; }}
-  .sidebar-title{{font-weight:700;font-size:1.05rem;margin-bottom:.25rem;}}
-  .sidebar-tip{{color:var(--text);opacity:.85;}}
+  section[data-testid="stSidebar"] {
+    background: var(--panel) !important;
+    border-right: 1px solid var(--border);
+  }
 
-  /* Hero */
-  .hero{{ margin-top:.25rem;margin-bottom:.9rem;padding:18px 20px;
-         border:1px solid var(--border);border-radius:18px;background:var(--hero-bg); }}
-  .hero h1{{ margin:0;font-weight:800;letter-spacing:.2px;font-size:1.7rem;
-            background:linear-gradient(90deg,var(--hero1),var(--hero2));
-            -webkit-background-clip:text;background-clip:text;color:transparent; }}
-  .hero p{{ margin:.25rem 0 0 0;color:var(--sub); }}
+  section[data-testid="stSidebar"] * {
+    color: var(--text) !important;
+  }
 
-  /* Force all text to follow theme */
-  .stMarkdown, .stMarkdown * , label, [data-testid="stCheckbox"] *, [data-testid="stSelectbox"] *,
-  [data-testid="stRadio"] *, [data-testid="stSlider"] *, .stTabs [data-baseweb="tab"],
-  .stDataFrame * {{ color:var(--text) !important; }}
+  /* Hero Section */
+  .hero {
+    background: linear-gradient(135deg, var(--panel) 0%, var(--surface) 100%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2rem;
+    margin: 1rem 0 2rem 0;
+    box-shadow: 0 4px 20px var(--shadow);
+  }
 
-  /* ---- Inputs ----------------------------------------------------- */
-  .stTextInput>div>div {{ background-color:var(--input-bg) !important;
-    border:1.5px solid var(--border-strong) !important; border-radius:12px !important; }}
-  .stTextInput>div>div>input {{ background-color:var(--input-bg) !important; color:var(--text) !important; }}
-  .stTextInput>div>div:focus-within {{ box-shadow:none !important; }}
+  .hero h1 {
+    font-size: 2.5rem;
+    font-weight: 800;
+    margin: 0 0 0.5rem 0;
+    background: linear-gradient(135deg, var(--accent), var(--secondary));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
 
-  /* Autofill background fix */
-  input:-webkit-autofill, input:-webkit-autofill:focus, input:-webkit-autofill:hover {{
-    -webkit-text-fill-color: var(--text) !important;
-    -webkit-box-shadow: 0 0 0 1000px var(--input-bg) inset !important;
-            box-shadow: 0 0 0 1000px var(--input-bg) inset !important;
-    caret-color: var(--text) !important; transition: background-color 9999s ease-out 0s;
-  }}
+  .hero p {
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    margin: 0;
+  }
 
-  /* Show "Press Enter to apply" (covers multiple DOM variants) */
-  [data-testid="stTextInputInstructions"],
-  .stTextInput [data-testid="stTextInputInstructions"],
-  .stTextInput div[aria-live="polite"],
-  div[aria-live="polite"][data-testid="stTextInputInstructions"],
-  .stTextInput small,
-  div[aria-live="polite"] small {{
-    color: var(--placeholder, #6b7280) !important;
-    opacity: .95 !important;
-  }}
-  .stTextInput div[aria-live="polite"] {{ pointer-events: none; }}
-
-  /* Text area */
-  .stTextArea [data-baseweb="textarea"], .stTextArea > div > div {{
-    background-color:var(--input-bg) !important;
-    border:1.5px solid var(--border-strong) !important;
-    border-radius:12px !important; box-shadow:none !important; }}
-  .stTextArea textarea, .stTextArea [data-baseweb="textarea"] > textarea {{
-    background-color:var(--input-bg) !important; color:var(--text) !important; }}
-  .stTextInput input::placeholder, .stTextArea textarea::placeholder {{ color:var(--placeholder) !important; opacity:1; }}
-
-  /* ===== File uploader - COMPREHENSIVE FIX ===== */
-  /* Main container */
-  .stFileUploader {{ background: transparent !important; }}
-  
-  /* Dropzone - target ALL nested elements */
-  .stFileUploader [data-testid="stFileUploaderDropzone"],
-  .stFileUploader [data-testid="stFileUploaderDropzone"] *,
-  .stFileUploader [data-testid="stFileUploaderDropzone"] > div,
-  .stFileUploader [data-testid="stFileUploaderDropzone"] > div > div,
-  .stFileUploader [data-testid="stFileUploaderDropzone"] > div > div > div,
-  .stFileUploader [data-testid="stFileUploaderDropzone"] label,
-  .stFileUploader [data-testid="stFileUploaderDropzone"] span,
-  .stFileUploader [data-testid="stFileUploaderDropzone"] p {{
-    background: var(--uploader-bg) !important;
-    background-color: var(--uploader-bg) !important;
-    color: var(--uploader-text) !important;
-  }}
-  
-  /* Border and layout */
-  .stFileUploader [data-testid="stFileUploaderDropzone"] {{
-    border: 1.5px dashed var(--uploader-border) !important;
-    border-radius: 12px !important;
-    box-shadow: none !important;
-    padding: 2rem !important;
-  }}
-  
-  /* SVG icons */
-  .stFileUploader [data-testid="stFileUploaderDropzone"] svg,
-  .stFileUploader [data-testid="stFileUploaderDropzone"] svg path {{
-    fill: var(--uploader-text) !important;
-  }}
-  
-  /* Browse button styling */
-  .stFileUploader [data-testid="stFileUploaderDropzone"] button {{
-    background: var(--btn1) !important;
-    color: white !important;
-    border: none !important;
-    border-radius: 8px !important;
-    padding: 0.5rem 1rem !important;
-    font-weight: 600 !important;
-    cursor: pointer !important;
-  }}
-  
-  .stFileUploader [data-testid="stFileUploaderDropzone"] button:hover {{
-    background: var(--btn1-hover) !important;
-  }}
-  
-  /* File info text */
-  .stFileUploader [data-testid="stFileUploaderDropzone"] small,
-  .stFileUploader [data-testid="stFileUploaderDropzone"] .uploadedFileName {{
-    color: var(--uploader-text) !important;
-    opacity: 0.8 !important;
-  }}
-
-  /* Override any remaining dark backgrounds */
-  .stFileUploader [data-testid="stFileUploaderDropzone"]::before,
-  .stFileUploader [data-testid="stFileUploaderDropzone"]::after {{
-    display: none !important;
-  }}
-
-  /* Selectbox surface + menu */
-  .stSelectbox [data-baseweb="select"] > div {{
-    background-color:var(--input-bg) !important; border:1.5px solid var(--border-strong) !important; border-radius:12px !important; }}
-  [data-baseweb="popover"] [role="listbox"] {{ background-color:var(--input-bg) !important; color:var(--text) !important;
-    border:1px solid var(--border-strong) !important; }}
-
-  /* Buttons (Analyze) */
-  .stButton > button{{ border-radius:12px;font-weight:700;padding:.6rem 1rem;
-    background:linear-gradient(90deg,var(--btn1),var(--btn2)) !important; color:#fff;border:none;
-    box-shadow:0 8px 18px rgba(0,0,0,.25); transition:transform .08s, box-shadow .12s, background .12s; }}
-  .stButton > button:hover{{ background:linear-gradient(90deg,var(--btn1-hover),var(--btn2-hover)) !important;
-    transform:translateY(-1px); box-shadow:0 10px 24px rgba(0,0,0,.32); }}
-  .stButton > button:active{{ background:linear-gradient(90deg,var(--btn1-active),var(--btn2-active)) !important; }}
-
-  /* Tabs/tables */
-  .stTabs [aria-selected="true"]{{ color:var(--text); border-bottom:2px solid var(--btn1); }}
-  .stDataFrame{{ border:1px solid var(--border-strong); border-radius:12px; overflow:hidden; }}
-
-  /* Alerts – success tint */
-  div[role="alert"]{{ background:var(--success-bg) !important; color:var(--text) !important; }}
-
-  /* Section titles */
-  .section-title {{ 
-    font-size: 1.2rem; 
-    font-weight: 700; 
-    color: var(--text); 
-    margin: 1rem 0 0.5rem 0;
+  /* Section Titles */
+  .section-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--text);
+    margin: 2rem 0 1rem 0;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-  }}
-  .section-title .icon {{ 
-    font-size: 1.1rem; 
-  }}
-  
+    gap: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--border);
+  }
+
+  .section-title .icon {
+    font-size: 1.3rem;
+  }
+
   /* Hints */
-  .hint {{ 
-    color: var(--sub); 
-    font-size: 0.9rem; 
-    margin-bottom: 1rem; 
-    opacity: 0.9;
-  }}
+  .hint {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: var(--surface);
+    border-radius: 8px;
+    border-left: 4px solid var(--accent);
+  }
 
-  /* Drug filters */
-  .drug-filters {{ 
-    font-size: 1rem; 
-    font-weight: 600; 
-    color: var(--text); 
-    margin: 1.5rem 0 0.75rem 0; 
-  }}
+  /* Input Fields */
+  .stTextInput > div > div,
+  .stTextArea > div > div {
+    background: var(--input-bg) !important;
+    border: 2px solid var(--border) !important;
+    border-radius: 12px !important;
+    transition: border-color 0.2s ease;
+  }
 
-  /* Plot text readable */
-  .js-plotly-plot .plotly .xtick text,
-  .js-plotly-plot .plotly .ytick text,
-  .js-plotly-plot .plotly .legend text,
-  .js-plotly-plot .plotly .gtitle,
-  .js-plotly-plot .plotly .sankey text,
-  .js-plotly-plot .plotly .sankey .node text{{ fill: var(--text) !important; font-weight:700 !important; }}
+  .stTextInput > div > div:focus-within,
+  .stTextArea > div > div:focus-within {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.1) !important;
+  }
 
-  /* Responsive */
-  @media (max-width: 900px){{
-    .block-container {{ padding-top:2.2rem !important; }}
-    .hero h1{{ font-size:1.35rem; }}
-    .stTextArea textarea{{ min-height:120px; max-height:160px; }}
-    [data-testid="column"]{{ width:100% !important; flex:1 1 100% !important; }}
-  }}
+  .stTextInput input,
+  .stTextArea textarea {
+    background: transparent !important;
+    color: var(--text) !important;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .stTextInput input::placeholder,
+  .stTextArea textarea::placeholder {
+    color: var(--text-secondary) !important;
+  }
+
+  /* File Uploader */
+  .stFileUploader [data-testid="stFileUploaderDropzone"] {
+    background: var(--surface) !important;
+    border: 2px dashed var(--border) !important;
+    border-radius: 12px !important;
+    padding: 2rem !important;
+    transition: all 0.2s ease;
+  }
+
+  .stFileUploader [data-testid="stFileUploaderDropzone"]:hover {
+    border-color: var(--accent) !important;
+    background: var(--input-bg) !important;
+  }
+
+  .stFileUploader [data-testid="stFileUploaderDropzone"] * {
+    color: var(--text) !important;
+  }
+
+  /* Selectbox */
+  .stSelectbox [data-baseweb="select"] > div {
+    background: var(--input-bg) !important;
+    border: 2px solid var(--border) !important;
+    border-radius: 12px !important;
+  }
+
+  [data-baseweb="popover"] [role="listbox"] {
+    background: var(--panel) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+  }
+
+  /* Buttons */
+  .stButton > button {
+    background: linear-gradient(135deg, var(--accent), var(--secondary)) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 12px !important;
+    padding: 0.75rem 2rem !important;
+    font-weight: 600 !important;
+    font-size: 1rem !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 4px 15px rgba(0, 212, 170, 0.3) !important;
+  }
+
+  .stButton > button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 25px rgba(0, 212, 170, 0.4) !important;
+    background: linear-gradient(135deg, var(--accent-hover), var(--secondary-hover)) !important;
+  }
+
+  .stButton > button:active {
+    transform: translateY(0) !important;
+  }
+
+  /* Checkboxes */
+  .stCheckbox > label {
+    color: var(--text) !important;
+    font-weight: 500;
+  }
+
+  /* Tabs */
+  .stTabs [data-baseweb="tab-list"] {
+    gap: 0.5rem;
+  }
+
+  .stTabs [data-baseweb="tab"] {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px 8px 0 0;
+    color: var(--text-muted);
+    font-weight: 500;
+    padding: 0.75rem 1.5rem;
+    transition: all 0.2s ease;
+  }
+
+  .stTabs [aria-selected="true"] {
+    background: var(--panel);
+    color: var(--accent);
+    border-bottom-color: var(--panel);
+  }
+
+  /* DataFrames */
+  .stDataFrame {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .stDataFrame table {
+    background: var(--panel) !important;
+  }
+
+  .stDataFrame th {
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    font-weight: 600;
+    border-bottom: 2px solid var(--border) !important;
+  }
+
+  .stDataFrame td {
+    background: var(--panel) !important;
+    color: var(--text) !important;
+    border-bottom: 1px solid var(--border) !important;
+  }
+
+  /* Progress Bar */
+  .stProgress > div > div > div {
+    background: linear-gradient(90deg, var(--accent), var(--secondary)) !important;
+  }
+
+  /* Alerts */
+  .stAlert {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    color: var(--text) !important;
+  }
+
+  .stSuccess {
+    border-left: 4px solid var(--success) !important;
+  }
+
+  .stError {
+    border-left: 4px solid var(--danger) !important;
+  }
+
+  .stWarning {
+    border-left: 4px solid var(--warning) !important;
+  }
+
+  .stInfo {
+    border-left: 4px solid var(--secondary) !important;
+  }
+
+  /* Sidebar Content */
+  .sidebar-title {
+    font-weight: 700;
+    font-size: 1.2rem;
+    margin-bottom: 0.5rem;
+    color: var(--accent);
+  }
+
+  .sidebar-tip {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+
+  /* Download Buttons */
+  .stDownloadButton > button {
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    transition: all 0.2s ease !important;
+  }
+
+  .stDownloadButton > button:hover {
+    background: var(--border) !important;
+    border-color: var(--accent) !important;
+  }
+
+  /* Plotly Charts */
+  .js-plotly-plot {
+    background: var(--panel) !important;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  /* Responsive Design */
+  @media (max-width: 768px) {
+    .hero h1 {
+      font-size: 2rem;
+    }
+    
+    .block-container {
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
+    
+    .section-title {
+      font-size: 1.2rem;
+    }
+  }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--surface);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--accent);
+  }
 </style>
-    """
+"""
 
-
-# ---- Inject CSS for the selected theme ----
-st.markdown(build_css(THEME), unsafe_allow_html=True)
-
-
-# ---- Plotly theming helper ----
-def apply_plotly_theme(fig: go.Figure) -> go.Figure:
-    light = THEME == "light"
-    fig.update_layout(
-        paper_bgcolor="#ffffff" if light else "#111827",
-        plot_bgcolor="#ffffff" if light else "#111827",
-        font_color="#0f172a" if light else "#ffffff",
-    )
-    return fig
-
-
-# ---------- Top header / hero ----------
-def render_logo():
-    for p in ("logoo.png", "logo.png", "assets/logo.png"):
-        if Path(p).exists():
-            st.image(p, width=96)
-            return
-    st.markdown("### 💊")
-
-left, right = st.columns([1, 9])
-with left:
-    render_logo()
-with right:
-    st.markdown(
-        """
-        <div class="hero">
-          <h1>Gene2Therapy</h1>
-          <p>Fast annotations → enrichment → diseases → drug repurposing (OpenTargets)</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+# Apply dark theme
+st.markdown(get_dark_theme_css(), unsafe_allow_html=True)
 
 # ----------------------------
-# Helpers
+# Enhanced API Classes
+# ----------------------------
+class RateLimitedSession:
+    """Session with built-in rate limiting and retry logic"""
+    
+    def __init__(self, requests_per_second=2, max_retries=3):
+        self.session = requests.Session()
+        self.min_interval = 1.0 / requests_per_second
+        self.last_request_time = 0
+        self.max_retries = max_retries
+        
+    def get(self, url, **kwargs):
+        """Rate-limited GET request with retry logic"""
+        for attempt in range(self.max_retries):
+            try:
+                # Rate limiting
+                elapsed = time.time() - self.last_request_time
+                if elapsed < self.min_interval:
+                    time.sleep(self.min_interval - elapsed)
+                
+                self.last_request_time = time.time()
+                
+                # Make request
+                response = self.session.get(url, timeout=30, **kwargs)
+                response.raise_for_status()
+                return response
+                
+            except requests.exceptions.RequestException as e:
+                if attempt == self.max_retries - 1:
+                    logger.error(f"Request failed after {self.max_retries} attempts: {e}")
+                    raise
+                time.sleep(2 ** attempt)  # Exponential backoff
+                
+    def post(self, url, **kwargs):
+        """Rate-limited POST request with retry logic"""
+        for attempt in range(self.max_retries):
+            try:
+                elapsed = time.time() - self.last_request_time
+                if elapsed < self.min_interval:
+                    time.sleep(self.min_interval - elapsed)
+                
+                self.last_request_time = time.time()
+                response = self.session.post(url, timeout=30, **kwargs)
+                response.raise_for_status()
+                return response
+                
+            except requests.exceptions.RequestException as e:
+                if attempt == self.max_retries - 1:
+                    logger.error(f"Request failed after {self.max_retries} attempts: {e}")
+                    raise
+                time.sleep(2 ** attempt)
+
+# Global session instances
+kegg_session = RateLimitedSession(requests_per_second=1)
+ot_session = RateLimitedSession(requests_per_second=3)
+
+# ----------------------------
+# Enhanced Helper Functions
 # ----------------------------
 def load_genes_from_any(uploaded_file) -> list[str]:
-    """
-    Read genes from CSV/TSV/XLSX/TXT.
-    Prefer columns named 'Gene.symbol' or 'Symbol' (case-insensitive).
-    Returns ≤200 unique, uppercased symbols.
-    """
+    """Enhanced gene loading with better error handling"""
     name = (uploaded_file.name or "").lower()
 
     def _clean_series_to_genes(series: pd.Series) -> list[str]:
-        vals = (
-            series.dropna().astype(str)
-            .str.replace(r"[,;|\t ]+", "\n", regex=True)
-            .str.split("\n").explode()
-        )
-        vals = vals.astype(str).str.strip().str.upper()
-        vals = vals[vals != ""]
-        seen, out = set(), []
-        for v in vals:
-            if v and v not in seen:
-                seen.add(v)
-                out.append(v)
-            if len(out) >= 200:
-                break
-        return out
+        try:
+            vals = (
+                series.dropna().astype(str)
+                .str.replace(r"[,;|\t ]+", "\n", regex=True)
+                .str.split("\n").explode()
+            )
+            vals = vals.astype(str).str.strip().str.upper()
+            vals = vals[vals != ""]
+            
+            seen, out = set(), []
+            for v in vals:
+                if v and v not in seen and len(v) > 1:  # Filter out single characters
+                    seen.add(v)
+                    out.append(v)
+                if len(out) >= 200:
+                    break
+            return out
+        except Exception as e:
+            logger.error(f"Error cleaning gene series: {e}")
+            return []
 
     try:
+        # Try different file formats
         if name.endswith((".csv", ".csv.gz")):
             df = pd.read_csv(uploaded_file, compression="infer")
         elif name.endswith((".tsv", ".tsv.gz")):
@@ -351,618 +482,1311 @@ def load_genes_from_any(uploaded_file) -> list[str]:
             df = None
 
         if isinstance(df, pd.DataFrame) and not df.empty:
+            # Look for gene symbol columns
             lower_map = {str(c).lower(): c for c in df.columns}
             target_col = None
-            for key in ("gene.symbol", "symbol"):
+            
+            # Priority order for column names
+            for key in ("gene.symbol", "symbol", "gene_symbol", "gene", "geneid"):
                 if key in lower_map:
                     target_col = lower_map[key]
                     break
+                    
             if target_col is None:
                 target_col = df.columns[0]
+                
             return _clean_series_to_genes(df[target_col])
-    except Exception:
-        pass
+            
+    except Exception as e:
+        logger.error(f"Error reading structured file: {e}")
 
+    # Fallback to text parsing
     try:
-        try:
-            uploaded_file.seek(0)
-        except Exception:
-            pass
+        uploaded_file.seek(0)
         raw = uploaded_file.read()
         text = raw.decode("utf-8", errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
         return _clean_series_to_genes(pd.Series([text]))
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error reading as text: {e}")
         return []
 
-
 # ----------------------------
-# Sidebar
+# Enhanced Caching Functions
 # ----------------------------
-with st.sidebar:
-    st.markdown('<div class="sidebar-title">🧪 BioContext</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-tip">Gene metadata, pathway enrichment, disease links & drug repurposing</div>', unsafe_allow_html=True)
-    st.markdown("---")
-    st.markdown("**Tips**")
-    st.markdown("- Keep gene lists modest (≤100) to avoid API throttling.\n- Re-run if APIs rate-limit (cache = 1h).")
-
-
-# ----------------------------
-# Caching helpers – KEGG / NCBI
-# ----------------------------
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def kegg_get(path: str) -> str:
-    r = requests.get(f"https://rest.kegg.jp{path}", timeout=30)
-    r.raise_for_status()
-    return r.text
+    """Enhanced KEGG API call with better error handling"""
+    try:
+        response = kegg_session.get(f"https://rest.kegg.jp{path}")
+        return response.text
+    except Exception as e:
+        logger.error(f"KEGG API error for {path}: {e}")
+        return ""
 
-
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def ncbi_esearch_gene_ids(gene_symbol: str, organism_entrez: str) -> list[str]:
-    handle = Entrez.esearch(
-        db="gene",
-        term=f"{gene_symbol}[Gene] AND {organism_entrez}[Organism]",
-        retmode="xml",
-    )
-    record = Entrez.read(handle)
-    handle.close()
-    return record.get("IdList", [])
-
-
-@st.cache_data(ttl=3600)
-def ncbi_esummary_description(gene_id: str) -> str:
-    handle = Entrez.esummary(db="gene", id=gene_id, retmode="xml")
-    raw_xml = handle.read()
-    handle.close()
-    root = ET.fromstring(raw_xml)
-    docsum = root.find(".//DocumentSummary")
-    return (docsum.findtext("Description", default="") or "").strip()
-
-
-@st.cache_data(ttl=3600)
-def kegg_ncbi_to_kegg_gene_id(ncbi_gene_id: str, kegg_org_prefix: str) -> str | None:
-    txt = kegg_get(f"/conv/genes/ncbi-geneid:{ncbi_gene_id}")
-    if not txt.strip():
-        return None
-    for line in txt.strip().split("\n"):
-        parts = line.split("\t")
-        if len(parts) == 2 and parts[0].endswith(f"{ncbi_gene_id}") and parts[1].startswith(f"{kegg_org_prefix}:"):
-            return parts[1].strip()
-    return None
-
-
-@st.cache_data(ttl=3600)
-def kegg_gene_pathways(kegg_gene_id: str) -> list[str]:
-    txt = kegg_get(f"/link/pathway/{kegg_gene_id}")
-    if not txt.strip():
+    """Enhanced NCBI gene search"""
+    try:
+        handle = Entrez.esearch(
+            db="gene",
+            term=f"{gene_symbol}[Gene] AND {organism_entrez}[Organism]",
+            retmode="xml",
+            retmax=5  # Limit results
+        )
+        record = Entrez.read(handle)
+        handle.close()
+        return record.get("IdList", [])
+    except Exception as e:
+        logger.error(f"NCBI search error for {gene_symbol}: {e}")
         return []
-    pids = []
-    for line in txt.strip().split("\n"):
-        parts = line.split("\t")
-        if len(parts) == 2 and parts[1].startswith("path:"):
-            pids.append(parts[1])
-    return pids
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def ncbi_esummary_description(gene_id: str) -> str:
+    """Enhanced NCBI gene description fetch"""
+    try:
+        handle = Entrez.esummary(db="gene", id=gene_id, retmode="xml")
+        raw_xml = handle.read()
+        handle.close()
+        root = ET.fromstring(raw_xml)
+        docsum = root.find(".//DocumentSummary")
+        return (docsum.findtext("Description", default="") or "").strip()
+    except Exception as e:
+        logger.error(f"NCBI summary error for {gene_id}: {e}")
+        return "Description unavailable"
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
+def kegg_ncbi_to_kegg_gene_id(ncbi_gene_id: str, kegg_org_prefix: str) -> str | None:
+    """Enhanced NCBI to KEGG ID conversion"""
+    try:
+        txt = kegg_get(f"/conv/genes/ncbi-geneid:{ncbi_gene_id}")
+        if not txt.strip():
+            return None
+            
+        for line in txt.strip().split("\n"):
+            parts = line.split("\t")
+            if len(parts) == 2 and parts[0].endswith(f"{ncbi_gene_id}") and parts[1].startswith(f"{kegg_org_prefix}:"):
+                return parts[1].strip()
+        return None
+    except Exception as e:
+        logger.error(f"KEGG conversion error for {ncbi_gene_id}: {e}")
+        return None
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def kegg_gene_pathways(kegg_gene_id: str) -> list[str]:
+    """Enhanced KEGG pathway fetch"""
+    try:
+        txt = kegg_get(f"/link/pathway/{kegg_gene_id}")
+        if not txt.strip():
+            return []
+            
+        pids = []
+        for line in txt.strip().split("\n"):
+            parts = line.split("\t")
+            if len(parts) == 2 and parts[1].startswith("path:"):
+                pids.append(parts[1])
+        return pids
+    except Exception as e:
+        logger.error(f"KEGG pathways error for {kegg_gene_id}: {e}")
+        return []
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def kegg_pathway_name(pathway_id: str) -> str | None:
-    pid = pathway_id.replace("path:", "")
-    txt = kegg_get(f"/get/{pid}")
-    for line in txt.split("\n"):
-        if line.startswith("NAME"):
-            return line.replace("NAME", "").strip()
-    return None
-
+    """Enhanced KEGG pathway name fetch"""
+    try:
+        pid = pathway_id.replace("path:", "")
+        txt = kegg_get(f"/get/{pid}")
+        for line in txt.split("\n"):
+            if line.startswith("NAME"):
+                return line.replace("NAME", "").strip()
+        return None
+    except Exception as e:
+        logger.error(f"KEGG pathway name error for {pathway_id}: {e}")
+        return "Unknown pathway"
 
 # ----------------------------
-# OpenTargets (no API key)
+# Enhanced OpenTargets Functions
 # ----------------------------
 OT_GQL = "https://api.platform.opentargets.org/api/v4/graphql"
 
-
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def ot_query(query: str, variables: dict | None = None) -> dict:
+    """Enhanced OpenTargets GraphQL query"""
     try:
-        r = requests.post(OT_GQL, json={"query": query, "variables": variables or {}})
-        data = r.json()
-        if r.status_code >= 400 or (isinstance(data, dict) and data.get("errors") and not data.get("data")):
+        response = ot_session.post(
+            OT_GQL, 
+            json={"query": query, "variables": variables or {}},
+            headers={"Content-Type": "application/json"}
+        )
+        data = response.json()
+        
+        if response.status_code >= 400 or (isinstance(data, dict) and data.get("errors") and not data.get("data")):
+            logger.error(f"OpenTargets API error: {data}")
             return {}
+            
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except Exception as e:
+        logger.error(f"OpenTargets query error: {e}")
         return {}
 
-
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def ot_target_from_symbol(symbol: str, species: str = "Homo sapiens") -> dict | None:
-    q = """
+    """Enhanced target lookup with better matching"""
+    query = """
     query FindTarget($q: String!) {
-      search(queryString: $q, entityNames: ["target"], page: {index: 0, size: 5}) {
-        hits { id name entity }
-      }
-    }
-    """
-    data = ot_query(q, {"q": symbol})
-    hits = (((data or {}).get("data", {})).get("search", {}) or {}).get("hits", [])
-    for h in hits:
-        if h.get("entity") == "target":
-            return {"id": h.get("id"), "approvedSymbol": h.get("name")}
-    return None
-
-
-@st.cache_data(ttl=3600)
-def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
-    q = """
-    query Associations($id: String!, $size: Int!) {
-      target(ensemblId: $id) {
-        id
-        associatedDiseases(page: {size: $size, index: 0}) {
-          rows { disease { id name } score }
+      search(queryString: $q, entityNames: ["target"], page: {index: 0, size: 10}) {
+        hits { 
+          id 
+          name 
+          entity 
+          object {
+            ... on Target {
+              approvedSymbol
+              biotype
+            }
+          }
         }
       }
     }
     """
-    data = ot_query(q, {"id": ensembl_id, "size": size})
-    rows = (((data or {}).get("data", {})).get("target", {}) or {}).get("associatedDiseases", {}).get("rows", [])
-    out = []
-    for r in rows:
-        d = r.get("disease", {})
-        out.append({
-            "target": ensembl_id,
-            "disease_id": d.get("id"),
-            "disease_name": d.get("name"),
-            "association_score": r.get("score"),
-        })
-    return pd.DataFrame(out)
+    
+    try:
+        data = ot_query(query, {"q": symbol})
+        hits = (((data or {}).get("data", {})).get("search", {}) or {}).get("hits", [])
+        
+        # Prioritize exact matches
+        for h in hits:
+            if h.get("entity") == "target":
+                obj = h.get("object", {})
+                approved_symbol = obj.get("approvedSymbol", "")
+                if approved_symbol.upper() == symbol.upper():
+                    return {
+                        "id": h.get("id"), 
+                        "approvedSymbol": approved_symbol,
+                        "biotype": obj.get("biotype")
+                    }
+        
+        # Fallback to first target hit
+        for h in hits:
+            if h.get("entity") == "target":
+                return {"id": h.get("id"), "approvedSymbol": h.get("name")}
+                
+        return None
+    except Exception as e:
+        logger.error(f"Target lookup error for {symbol}: {e}")
+        return None
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
+    """Enhanced disease associations fetch"""
+    query = """
+    query Associations($id: String!, $size: Int!) {
+      target(ensemblId: $id) {
+        id
+        associatedDiseases(page: {size: $size, index: 0}) {
+          rows { 
+            disease { 
+              id 
+              name 
+              therapeuticAreas { id name }
+            } 
+            score 
+            datatypeScores {
+              id
+              score
+            }
+          }
+        }
+      }
+    }
+    """
+    
+    try:
+        data = ot_query(query, {"id": ensembl_id, "size": size})
+        rows = (((data or {}).get("data", {})).get("target", {}) or {}).get("associatedDiseases", {}).get("rows", [])
+        
+        out = []
+        for r in rows:
+            d = r.get("disease", {})
+            therapeutic_areas = d.get("therapeuticAreas", [])
+            ta_names = "; ".join([ta.get("name", "") for ta in therapeutic_areas if ta.get("name")])
+            
+            out.append({
+                "target": ensembl_id,
+                "disease_id": d.get("id"),
+                "disease_name": d.get("name"),
+                "association_score": r.get("score"),
+                "therapeutic_areas": ta_names,
+            })
+        return pd.DataFrame(out)
+    except Exception as e:
+        logger.error(f"Disease associations error for {ensembl_id}: {e}")
+        return pd.DataFrame(columns=["target", "disease_id", "disease_name", "association_score", "therapeutic_areas"])
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
-    q = """
+    """Enhanced drug suggestions fetch"""
+    query = """
     query KnownDrugs($id: String!, $size: Int!) {
       target(ensemblId: $id) {
         id
         knownDrugs(size: $size) {
           rows {
             phase
+            status
             mechanismOfAction
-            drug { id name }
-            disease { id name }
+            drug { 
+              id 
+              name 
+              drugType
+              maximumClinicalTrialPhase
+            }
+            disease { 
+              id 
+              name 
+              therapeuticAreas { name }
+            }
+            clinicalTrial {
+              id
+              status
+            }
           }
         }
       }
     }
     """
-    data = ot_query(q, {"id": ensembl_id, "size": size})
-    rows = (((data or {}).get("data", {})).get("target", {}) or {}).get("knownDrugs", {}).get("rows", [])
-    out = []
-    for r in rows:
-        drug_obj = r.get("drug") or {}
-        disease_obj = r.get("disease") or {}
-        out.append({
-            "target": ensembl_id,
-            "drug_id": drug_obj.get("id"),
-            "drug_name": drug_obj.get("name"),
-            "phase": r.get("phase"),
-            "moa": r.get("mechanismOfAction"),
-            "diseases": "; ".join(filter(None, [disease_obj.get("name")])),
-        })
-    return pd.DataFrame(out)
-
+    
+    try:
+        data = ot_query(query, {"id": ensembl_id, "size": size})
+        rows = (((data or {}).get("data", {})).get("target", {}) or {}).get("knownDrugs", {}).get("rows", [])
+        
+        out = []
+        for r in rows:
+            drug_obj = r.get("drug") or {}
+            disease_obj = r.get("disease") or {}
+            clinical_trial = r.get("clinicalTrial") or {}
+            
+            therapeutic_areas = disease_obj.get("therapeuticAreas", [])
+            ta_names = "; ".join([ta.get("name", "") for ta in therapeutic_areas if ta.get("name")])
+            
+            out.append({
+                "target": ensembl_id,
+                "drug_id": drug_obj.get("id"),
+                "drug_name": drug_obj.get("name"),
+                "drug_type": drug_obj.get("drugType"),
+                "phase": r.get("phase"),
+                "status": r.get("status"),
+                "max_phase": drug_obj.get("maximumClinicalTrialPhase"),
+                "moa": r.get("mechanismOfAction"),
+                "disease_name": disease_obj.get("name"),
+                "therapeutic_areas": ta_names,
+                "trial_status": clinical_trial.get("status"),
+            })
+        return pd.DataFrame(out)
+    except Exception as e:
+        logger.error(f"Drug suggestions error for {ensembl_id}: {e}")
+        return pd.DataFrame(columns=["target", "drug_id", "drug_name", "drug_type", "phase", "status", "max_phase", "moa", "disease_name", "therapeutic_areas", "trial_status"])
 
 # ----------------------------
-# Core functions
+# Enhanced Core Functions
 # ----------------------------
 def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
-                                 kegg_org_prefix: str, progress=None):
+                                 kegg_org_prefix: str, progress_bar=None):
+    """Enhanced metadata fetch with better progress tracking"""
     results = []
     pathway_to_genes = defaultdict(set)
+    
+    total_genes = len(gene_list)
+    
     for i, gene in enumerate(gene_list, start=1):
-        if progress:
-            progress.progress(min(i / max(len(gene_list), 1), 1.0))
+        if progress_bar:
+            progress_bar.progress(i / total_genes, text=f"Processing {gene} ({i}/{total_genes})")
+            
         try:
+            # NCBI gene search
             ids = ncbi_esearch_gene_ids(gene, organism_entrez)
             if not ids:
-                results.append({"Gene": gene, "NCBI_ID": None, "Description": "No match found", "KEGG_Pathways": None})
+                results.append({
+                    "Gene": gene, 
+                    "NCBI_ID": None, 
+                    "Description": "No NCBI match found", 
+                    "KEGG_Pathways": None,
+                    "Status": "No match"
+                })
                 continue
+                
             gene_id = ids[0]
             description = ncbi_esummary_description(gene_id)
+            
+            # KEGG conversion
             kegg_id = kegg_ncbi_to_kegg_gene_id(gene_id, kegg_org_prefix)
             if not kegg_id:
-                results.append({"Gene": gene, "NCBI_ID": gene_id, "Description": description, "KEGG_Pathways": None})
+                results.append({
+                    "Gene": gene, 
+                    "NCBI_ID": gene_id, 
+                    "Description": description, 
+                    "KEGG_Pathways": None,
+                    "Status": "No KEGG match"
+                })
                 continue
+                
+            # KEGG pathways
             pids = kegg_gene_pathways(kegg_id)
-            pairs = []
+            pathway_pairs = []
+            
             for pid in pids:
-                name = kegg_pathway_name(pid) or ""
-                pairs.append(f"{pid} - {name}")
+                name = kegg_pathway_name(pid) or "Unknown"
+                pathway_pairs.append(f"{pid.replace('path:', '')} - {name}")
                 pathway_to_genes[pid].add(gene)
-            pathways_str = "; ".join(pairs) if pairs else None
-            results.append({"Gene": gene, "NCBI_ID": gene_id, "Description": description, "KEGG_Pathways": pathways_str})
-            time.sleep(0.20)
+                
+            pathways_str = "; ".join(pathway_pairs) if pathway_pairs else None
+            
+            results.append({
+                "Gene": gene, 
+                "NCBI_ID": gene_id, 
+                "Description": description, 
+                "KEGG_Pathways": pathways_str,
+                "Status": f"Found {len(pids)} pathways" if pids else "No pathways"
+            })
+            
+            # Rate limiting
+            time.sleep(0.1)
+            
         except Exception as e:
-            results.append({"Gene": gene, "NCBI_ID": None, "Description": f"Error: {e}", "KEGG_Pathways": None})
+            logger.error(f"Error processing {gene}: {e}")
+            results.append({
+                "Gene": gene, 
+                "NCBI_ID": None, 
+                "Description": f"Error: {str(e)[:100]}", 
+                "KEGG_Pathways": None,
+                "Status": "Error"
+            })
+    
     return pd.DataFrame(results), pathway_to_genes
 
-
 def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
+    """Enhanced enrichment computation with better sorting"""
+    if not pathway_to_genes:
+        return pd.DataFrame(columns=["Pathway_ID", "Pathway_Name", "Count", "Genes", "Gene_List"])
+        
     rows = []
-    for pid, genes in sorted(pathway_to_genes.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+    for pid, genes in pathway_to_genes.items():
+        pathway_name = kegg_pathway_name(pid) or "Unknown pathway"
+        gene_list = sorted(list(genes))
+        
         rows.append({
             "Pathway_ID": pid.replace("path:", ""),
-            "Pathway_Name": kegg_pathway_name(pid) or "",
+            "Pathway_Name": pathway_name,
             "Count": len(genes),
-            "Genes": ";".join(sorted(genes)),
+            "Genes": ";".join(gene_list),
+            "Gene_List": ", ".join(gene_list[:10]) + ("..." if len(gene_list) > 10 else "")
         })
+    
     df = pd.DataFrame(rows)
     if not df.empty:
         df = df.sort_values(["Count", "Pathway_Name"], ascending=[False, True]).reset_index(drop=True)
+    
     return df
 
-
-# ----------------------------
-# Cohort-level OpenTargets: mapping, diseases, drugs
-# ----------------------------
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens") -> dict:
+    """Enhanced gene to target mapping with progress tracking"""
     g2t = {}
     for g in genes:
-        hit = ot_target_from_symbol(g, species)
-        if hit:
-            g2t[g] = hit
-        time.sleep(0.05)
+        try:
+            hit = ot_target_from_symbol(g, species)
+            if hit:
+                g2t[g] = hit
+            time.sleep(0.05)  # Rate limiting
+        except Exception as e:
+            logger.error(f"Error mapping {g}: {e}")
     return g2t
 
-
-@st.cache_data(ttl=3600)
 def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
+    """Enhanced disease collection with better error handling"""
     frames = []
+    
     for g, tgt in gene_to_target.items():
         tid = tgt.get("id")
         if not tid:
             continue
-        df = ot_diseases_for_target(tid)
-        if not df.empty:
-            df.insert(0, "gene", g)
-            frames.append(df)
-        time.sleep(0.05)
+            
+        try:
+            df = ot_diseases_for_target(tid)
+            if not df.empty:
+                df.insert(0, "gene", g)
+                df.insert(1, "gene_symbol", tgt.get("approvedSymbol", g))
+                frames.append(df)
+            time.sleep(0.05)
+        except Exception as e:
+            logger.error(f"Error collecting diseases for {g}: {e}")
+    
     if frames:
-        return pd.concat(frames, ignore_index=True)
-    return pd.DataFrame(columns=["gene", "target", "disease_id", "disease_name", "association_score"])
+        combined = pd.concat(frames, ignore_index=True)
+        # Remove duplicates and sort by score
+        combined = combined.drop_duplicates(subset=["gene", "disease_id"])
+        combined = combined.sort_values("association_score", ascending=False)
+        return combined
+    
+    return pd.DataFrame(columns=["gene", "gene_symbol", "target", "disease_id", "disease_name", "association_score", "therapeutic_areas"])
 
-
-@st.cache_data(ttl=3600)
 def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
+    """Enhanced drug collection with better filtering"""
     frames = []
+    
     for g, tgt in gene_to_target.items():
         tid = tgt.get("id")
         if not tid:
             continue
-        df = ot_drugs_for_target(tid)
-        if not df.empty:
-            df.insert(0, "gene", g)
-            frames.append(df)
-        time.sleep(0.05)
+            
+        try:
+            df = ot_drugs_for_target(tid)
+            if not df.empty:
+                df.insert(0, "gene", g)
+                df.insert(1, "gene_symbol", tgt.get("approvedSymbol", g))
+                frames.append(df)
+            time.sleep(0.05)
+        except Exception as e:
+            logger.error(f"Error collecting drugs for {g}: {e}")
+    
     if frames:
-        return pd.concat(frames, ignore_index=True)
-    return pd.DataFrame(columns=["gene", "target", "drug_id", "drug_name", "phase", "moa", "diseases"])
-
+        combined = pd.concat(frames, ignore_index=True)
+        # Clean and enhance data
+        combined["phase_numeric"] = pd.to_numeric(combined["phase"], errors="coerce").fillna(0).astype(int)
+        combined["max_phase_numeric"] = pd.to_numeric(combined["max_phase"], errors="coerce").fillna(0).astype(int)
+        
+        # Remove duplicates
+        combined = combined.drop_duplicates(subset=["gene", "drug_id", "disease_name"])
+        return combined
+    
+    return pd.DataFrame(columns=["gene", "gene_symbol", "target", "drug_id", "drug_name", "drug_type", "phase", "status", "max_phase", "moa", "disease_name", "therapeutic_areas", "trial_status"])
 
 # ----------------------------
-# UI – Inputs
+# Enhanced Plotly Theme
 # ----------------------------
-with st.container():
-    st.markdown('<div class="section-title"><span class="icon">🔧</span>Input</div>', unsafe_allow_html=True)
-    st.markdown('<div class="hint">Upload a gene list (CSV/TSV/XLSX/TXT) or paste genes, then explore annotations, enrichment, diseases, and drugs.</div>', unsafe_allow_html=True)
+def apply_plotly_dark_theme(fig: go.Figure) -> go.Figure:
+    """Apply consistent dark theme to Plotly figures"""
+    fig.update_layout(
+        paper_bgcolor="#1a1f2e",
+        plot_bgcolor="#252b3a",
+        font_color="#ffffff",
+        font_family="Inter, sans-serif",
+        title_font_size=16,
+        title_font_color="#00d4aa",
+        legend=dict(
+            bgcolor="rgba(26, 31, 46, 0.8)",
+            bordercolor="#4a5568",
+            borderwidth=1
+        ),
+        margin=dict(l=50, r=50, t=50, b=50)
+    )
+    
+    # Update axes
+    fig.update_xaxes(
+        gridcolor="#4a5568",
+        linecolor="#4a5568",
+        tickcolor="#ffffff"
+    )
+    fig.update_yaxes(
+        gridcolor="#4a5568",
+        linecolor="#4a5568",
+        tickcolor="#ffffff"
+    )
+    
+    return fig
 
-    email = st.text_input("NCBI Entrez email (required)", value="", help="NCBI asks for a contact email for E-Utilities.")
+# ----------------------------
+# UI Components
+# ----------------------------
+def render_logo():
+    """Render logo with fallback"""
+    logo_paths = ["logo.png", "assets/logo.png", "public/logo.png"]
+    for path in logo_paths:
+        if Path(path).exists():
+            st.image(path, width=80)
+            return
+    st.markdown("### 💊")
+
+def render_hero():
+    """Render hero section"""
+    col1, col2 = st.columns([1, 8])
+    
+    with col1:
+        render_logo()
+        
+    with col2:
+        st.markdown("""
+        <div class="hero">
+            <h1>Gene2Therapy</h1>
+            <p>Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+def render_sidebar():
+    """Enhanced sidebar with tips and info"""
+    with st.sidebar:
+        st.markdown('<div class="sidebar-title">🧬 BioContext Analytics</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sidebar-tip">Comprehensive gene-to-therapy pipeline with enhanced API integration and dark mode interface.</div>', unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        st.markdown("**💡 Tips & Best Practices**")
+        st.markdown("""
+        - **Gene Lists**: Keep under 100 genes for optimal performance
+        - **Rate Limits**: Built-in throttling prevents API timeouts  
+        - **Caching**: Results cached for 1 hour to improve speed
+        - **Formats**: Supports CSV, TSV, XLSX, and plain text
+        - **Columns**: Looks for 'Gene.symbol', 'Symbol', or first column
+        """)
+        
+        st.markdown("---")
+        
+        st.markdown("**🔗 Data Sources**")
+        st.markdown("""
+        - **NCBI**: Gene annotations and descriptions
+        - **KEGG**: Pathway enrichment analysis  
+        - **OpenTargets**: Disease associations and drug data
+        """)
+        
+        st.markdown("---")
+        
+        with st.expander("📊 Analysis Pipeline"):
+            st.markdown("""
+            1. **Gene Mapping**: NCBI gene database lookup
+            2. **Pathway Analysis**: KEGG pathway enrichment
+            3. **Disease Links**: OpenTargets association scores
+            4. **Drug Discovery**: Therapeutic compound suggestions
+            5. **Visualization**: Interactive network and charts
+            """)
+
+# ----------------------------
+# Main Application
+# ----------------------------
+def main():
+    render_hero()
+    render_sidebar()
+    
+    # Input Section
+    st.markdown('<div class="section-title"><span class="icon">🔧</span>Configuration & Input</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hint">📋 Upload your gene list or paste gene symbols to begin the analysis pipeline. All API calls are optimized with rate limiting and caching.</div>', unsafe_allow_html=True)
+    
+    # Email input for NCBI
+    email = st.text_input(
+        "📧 NCBI Entrez Email (Required)", 
+        value="", 
+        help="Required by NCBI for API access. Your email helps them contact you if there are issues.",
+        placeholder="your.email@example.com"
+    )
+    
     if email:
         Entrez.email = email
-
+    
+    # Organism selection
     organisms = {
-        "Homo sapiens (human)": {"entrez": "Homo sapiens", "kegg": "hsa"},
-        "Mus musculus (mouse)": {"entrez": "Mus musculus", "kegg": "mmu"},
-        "Rattus norvegicus (rat)": {"entrez": "Rattus norvegicus", "kegg": "rno"},
+        "🧑 Homo sapiens (Human)": {"entrez": "Homo sapiens", "kegg": "hsa"},
+        "🐭 Mus musculus (Mouse)": {"entrez": "Mus musculus", "kegg": "mmu"},
+        "🐀 Rattus norvegicus (Rat)": {"entrez": "Rattus norvegicus", "kegg": "rno"},
     }
-    org_label = st.selectbox("Organism", list(organisms.keys()), index=0)
+    
+    org_label = st.selectbox("🔬 Select Organism", list(organisms.keys()), index=0)
     organism_entrez = organisms[org_label]["entrez"]
     kegg_org_prefix = organisms[org_label]["kegg"]
-
-    col_u, col_p = st.columns(2)
-    with col_u:
-        uploaded = st.file_uploader("Upload gene list - csv, tsv, txt, xlsx", type=["csv", "tsv", "txt", "xlsx"])
-    with col_p:
-        manual_input = st.text_area(
-            "Or paste gene symbols here (comma, space, or newline separated):",
-            placeholder="e.g. TP53, BRCA1, EGFR, MYC",
-            height=80,
+    
+    # File upload and manual input
+    col_upload, col_manual = st.columns([1, 1])
+    
+    with col_upload:
+        uploaded = st.file_uploader(
+            "📁 Upload Gene List", 
+            type=["csv", "tsv", "txt", "xlsx"],
+            help="Supports CSV, TSV, XLSX, and plain text files. Looks for 'Gene.symbol' or 'Symbol' columns."
         )
-
-    st.markdown('<h4 class="drug-filters">Drug filters (applied in the Drug Suggestions tab)</h4>', unsafe_allow_html=True)
-    opt_only_phase4 = st.checkbox(
-        "Show only approved drugs (Phase 4)",
-        value=True,
-        help="Filters to max_phase ≥ 4."
-    )
-
+    
+    with col_manual:
+        manual_input = st.text_area(
+            "✏️ Or Paste Gene Symbols",
+            placeholder="TP53, BRCA1, EGFR, MYC, PIK3CA\nAKT1, KRAS, PTEN...",
+            height=100,
+            help="Enter gene symbols separated by commas, spaces, or new lines"
+        )
+    
+    # Drug filtering options
+    st.markdown("---")
+    st.markdown("**💊 Drug Analysis Filters**")
+    
+    col_phase, col_type = st.columns([1, 1])
+    
+    with col_phase:
+        opt_only_phase4 = st.checkbox(
+            "✅ Show only approved drugs (Phase 4+)",
+            value=True,
+            help="Filter to show only drugs that have completed clinical trials"
+        )
+    
+    with col_type:
+        show_investigational = st.checkbox(
+            "🧪 Include investigational compounds",
+            value=False,
+            help="Include drugs in earlier clinical trial phases"
+        )
+    
+    # Process input
     genes_from_input: list[str] = []
+    
     if manual_input.strip():
         genes_from_input = (
             pd.Series([manual_input])
-            .str.replace(r"[,;|\t ]+", "\n", regex=True)
+            .str.replace(r"[,;|\t\n ]+", "\n", regex=True)
             .str.split("\n").explode().str.strip().str.upper()
         )
-        genes_from_input = [g for g in genes_from_input.tolist() if g][:200]
+        genes_from_input = [g for g in genes_from_input.tolist() if g and len(g) > 1][:200]
+        
     elif uploaded is not None:
         genes_from_input = load_genes_from_any(uploaded)
-
-    run_btn = st.button("▶️ Analyze", type="primary", disabled=(not genes_from_input or not email))
-
-st.divider()
-
-# ----------------------------
-# Tabs
-# ----------------------------
-meta_tab, enrich_tab, disease_tab, drug_tab, viz_tab = st.tabs([
-    "1) Metadata", "2) Enrichment", "3) Disease Links", "4) Drug Suggestions", "5) Visualize"
-])
-
-if run_btn:
-    # Load genes
-    try:
-        genes = genes_from_input
-        if not genes:
-            st.error("Could not parse any genes. Provide a 'Gene.symbol' / 'Symbol' column or a plain list.")
-            st.stop()
-        st.success(f"Loaded {len(genes)} genes.")
-    except Exception as e:
-        st.error(f"Could not read input: {e}")
-        st.stop()
-
-    # Step 1
-    with meta_tab:
-        st.markdown('<div class="section-title"><span class="icon">📇</span>Step 1 — NCBI + KEGG annotations</div>', unsafe_allow_html=True)
-        progress = st.progress(0.0)
-        with st.spinner("Querying NCBI and KEGG..."):
-            df_meta, pathway_to_genes = fetch_gene_metadata_and_kegg(
-                genes, organism_entrez, kegg_org_prefix, progress=progress
-            )
-        st.success("Metadata retrieval complete.")
-
-        if not df_meta.empty:
-            show_meta = df_meta.copy()
-            show_meta.insert(0, "#", range(1, len(show_meta) + 1))
-            st.dataframe(show_meta, use_container_width=True, hide_index=True)
-            st.download_button(
-                "⬇️ Download metadata CSV",
-                data=df_meta.to_csv(index=False).encode("utf-8"),
-                file_name="gene_metadata_with_kegg.csv",
-                mime="text/csv"
-            )
+    
+    # Analysis button
+    st.markdown("---")
+    
+    col_btn, col_info = st.columns([1, 2])
+    
+    with col_btn:
+        run_analysis = st.button(
+            "🚀 Start Analysis", 
+            type="primary", 
+            disabled=(not genes_from_input or not email),
+            use_container_width=True
+        )
+    
+    with col_info:
+        if genes_from_input:
+            st.success(f"✅ {len(genes_from_input)} genes ready for analysis")
+        elif not email:
+            st.warning("⚠️ Please provide your email address")
         else:
-            st.info("No metadata found for the provided gene list.")
-
-    # Step 2
-    with enrich_tab:
-        st.markdown('<div class="section-title"><span class="icon">📊</span>Step 2 — Pathway Enrichment (counts-only)</div>', unsafe_allow_html=True)
-        with st.spinner("Summarizing pathway hits..."):
-            df_enrich = compute_enrichment_counts_only(pathway_to_genes)
-
-        if df_enrich.empty:
-            st.info("No pathways found for enrichment with the current gene list.")
-        else:
-            show = df_enrich.copy()
-            show.insert(0, "#", range(1, len(show) + 1))
-            st.dataframe(show, use_container_width=True, hide_index=True)
-            st.download_button(
-                "⬇️ Download enrichment CSV (counts-only)",
-                data=df_enrich.to_csv(index=False).encode("utf-8"),
-                file_name="pathway_enrichment_counts_only.csv",
-                mime="text/csv"
-            )
-            try:
-                topN = df_enrich.head(15).copy()
-                fig = px.bar(topN, x="Count", y="Pathway_Name", orientation="h", title="Top pathways by gene hits")
-                fig.update_layout(height=600)
-                fig = apply_plotly_theme(fig)
-                st.plotly_chart(fig, use_container_width=True)
-            except Exception:
-                pass
-
-    # Step 3
-    with disease_tab:
-        st.markdown('<div class="section-title"><span class="icon">🧬</span>Step 3 — Disease Associations (OpenTargets)</div>', unsafe_allow_html=True)
-        with st.spinner("Mapping symbols to Ensembl IDs and fetching disease links..."):
-            g2t = build_gene_to_ot_target_map(genes, species="Homo sapiens")
-            df_dis = collect_disease_links(g2t)
-
-        if df_dis.empty:
-            st.info("No disease associations retrieved (try human genes or a smaller list).")
-        else:
-            agg = (
-                df_dis.groupby(["disease_id", "disease_name"])
-                .agg(n_genes=("gene", lambda s: len(set(s))),
-                     max_score=("association_score", "max"))
-                .reset_index()
-                .sort_values(["n_genes", "max_score"], ascending=[False, False])
-            )
-            showD = agg.copy()
-            showD.insert(0, "#", range(1, len(showD) + 1))
-            st.dataframe(showD, use_container_width=True, hide_index=True)
-
-            st.download_button(
-                "⬇️ Download disease associations (per gene)",
-                data=df_dis.to_csv(index=False).encode("utf-8"),
-                file_name="gene_disease_links_opentargets.csv",
-                mime="text/csv"
-            )
-            st.download_button(
-                "⬇️ Download disease summary (aggregated)",
-                data=agg.to_csv(index=False).encode("utf-8"),
-                file_name="disease_summary_aggregated.csv",
-                mime="text/csv"
-            )
-
-            try:
-                topD = agg.head(20)
-                figd = px.bar(topD, x="n_genes", y="disease_name", orientation="h",
-                              title="Top disease associations (by # genes)")
-                figd.update_layout(height=650)
-                figd = apply_plotly_theme(figd)
-                st.plotly_chart(figd, use_container_width=True)
-            except Exception:
-                pass
-
-    # Step 4
-    with drug_tab:
-        st.markdown('<div class="section-title"><span class="icon">💊</span>Step 4 — Repurposable Drug Suggestions</div>', unsafe_allow_html=True)
-        with st.spinner("Fetching known drugs targeting your genes..."):
-            df_drugs = collect_drug_suggestions(g2t)
-
-        if df_drugs.empty:
-            st.info("No drugs found for the mapped targets.")
-        else:
-            df_drugs["phase_rank"] = pd.to_numeric(df_drugs["phase"], errors="coerce").fillna(0).astype(int)
-
-            drug_sum = (
-                df_drugs.groupby(["drug_id", "drug_name"]).agg(
-                    targets=("target", lambda s: ";".join(sorted(set(s)))),
-                    genes=("gene", lambda s: ";".join(sorted(set(s)))),
-                    indications=("diseases", lambda s: "; ".join(sorted({x for x in "; ".join(s).split("; ") if x}))),
-                    moa=("moa", lambda s: "; ".join(sorted({x for x in s if x}))),
-                    max_phase=("phase", "max"),
-                ).reset_index()
-            )
-
-            drug_sum["max_phase"] = pd.to_numeric(drug_sum["max_phase"], errors="coerce").fillna(0).astype(int)
-            drug_sum["approved"] = drug_sum["max_phase"] >= 4
-
-            if opt_only_phase4:
-                drug_sum = drug_sum[drug_sum["approved"] == True]
-
-            drug_sum = drug_sum.sort_values(
-                ["approved", "max_phase", "drug_name"],
-                ascending=[False, False, True]
-            )
-
-            if drug_sum.empty:
-                st.info("No drugs met the selected filters. Tip: uncheck 'Show only approved (Phase 4)' to see investigational candidates.")
-            else:
-                showRx = drug_sum.copy()
-                showRx.insert(0, "#", range(1, len(showRx) + 1))
-                cols_order = [c for c in [
-                    "#", "drug_id", "drug_name", "targets", "genes", "indications", "moa",
-                    "max_phase", "approved"
-                ] if c in showRx.columns]
-                other_cols = [c for c in showRx.columns if c not in cols_order]
-                st.dataframe(showRx[cols_order + other_cols], use_container_width=True, hide_index=True)
-
-            st.download_button(
-                "⬇️ Download drug suggestions (per target)",
-                data=df_drugs.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_per_target.csv",
-                mime="text/csv"
-            )
-            st.download_button(
-                "⬇️ Download drug suggestions (aggregated + filters)",
-                data=drug_sum.to_csv(index=False).encode("utf-8"),
-                file_name="drug_suggestions_aggregated_filtered.csv",
-                mime="text/csv"
-            )
-
-    # Step 5
-    with viz_tab:
-        st.markdown('<div class="section-title"><span class="icon">🌐</span>Step 5 — Visualize the landscape</div>', unsafe_allow_html=True)
-        colA, colB = st.columns(2)
-
-        with colA:
-            try:
-                if 'df_dis' in locals() and not df_dis.empty:
-                    aggD = (
-                        df_dis.groupby("disease_name").agg(n_genes=("gene", lambda s: len(set(s)))).reset_index()
-                        .sort_values("n_genes", ascending=False).head(10)
+            st.info("📝 Please upload a file or paste gene symbols")
+    
+    # Analysis tabs
+    if run_analysis:
+        st.markdown("---")
+        
+        # Create tabs
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "📇 Gene Metadata", 
+            "📊 Pathway Enrichment", 
+            "🧬 Disease Associations", 
+            "💊 Drug Suggestions", 
+            "🌐 Network Visualization"
+        ])
+        
+        # Initialize session state for results
+        if 'analysis_results' not in st.session_state:
+            st.session_state.analysis_results = {}
+        
+        # Step 1: Gene Metadata & KEGG
+        with tab1:
+            st.markdown('<div class="section-title"><span class="icon">📇</span>Gene Annotations & KEGG Pathways</div>', unsafe_allow_html=True)
+            
+            if 'metadata' not in st.session_state.analysis_results:
+                progress_container = st.container()
+                with progress_container:
+                    progress_bar = st.progress(0.0)
+                    status_text = st.empty()
+                    
+                with st.spinner("🔍 Fetching gene metadata and pathway information..."):
+                    df_meta, pathway_to_genes = fetch_gene_metadata_and_kegg(
+                        genes_from_input, organism_entrez, kegg_org_prefix, progress_bar
                     )
-                    top_dis = set(aggD["disease_name"].tolist())
-                    genes_set = sorted(set(df_dis[df_dis["disease_name"].isin(top_dis)]["gene"]))
-                    dis_list = sorted(top_dis)
+                    
+                st.session_state.analysis_results['metadata'] = df_meta
+                st.session_state.analysis_results['pathways'] = pathway_to_genes
+                
+                progress_container.empty()
+            else:
+                df_meta = st.session_state.analysis_results['metadata']
+                pathway_to_genes = st.session_state.analysis_results['pathways']
+            
+            if not df_meta.empty:
+                # Summary metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Total Genes", len(df_meta))
+                with col2:
+                    found_genes = len(df_meta[df_meta['NCBI_ID'].notna()])
+                    st.metric("NCBI Matches", found_genes)
+                with col3:
+                    kegg_genes = len(df_meta[df_meta['KEGG_Pathways'].notna()])
+                    st.metric("KEGG Mapped", kegg_genes)
+                with col4:
+                    total_pathways = len(pathway_to_genes)
+                    st.metric("Unique Pathways", total_pathways)
+                
+                st.markdown("---")
+                
+                # Display results table
+                display_df = df_meta.copy()
+                display_df.insert(0, "#", range(1, len(display_df) + 1))
+                
+                st.dataframe(
+                    display_df, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "Description": st.column_config.TextColumn(width="medium"),
+                        "KEGG_Pathways": st.column_config.TextColumn(width="large"),
+                        "Status": st.column_config.TextColumn(width="small")
+                    }
+                )
+                
+                # Download button
+                csv_data = df_meta.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "⬇️ Download Gene Metadata",
+                    data=csv_data,
+                    file_name=f"gene_metadata_{organism_entrez.replace(' ', '_').lower()}.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.error("❌ No gene metadata could be retrieved. Please check your gene symbols and try again.")
+        
+        # Step 2: Pathway Enrichment
+        with tab2:
+            st.markdown('<div class="section-title"><span class="icon">📊</span>KEGG Pathway Enrichment</div>', unsafe_allow_html=True)
+            
+            if 'pathways' in st.session_state.analysis_results:
+                pathway_to_genes = st.session_state.analysis_results['pathways']
+                
+                with st.spinner("📈 Computing pathway enrichment..."):
+                    df_enrich = compute_enrichment_counts_only(pathway_to_genes)
+                
+                if not df_enrich.empty:
+                    # Summary metrics
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric("Enriched Pathways", len(df_enrich))
+                    with col2:
+                        max_genes = df_enrich['Count'].max() if not df_enrich.empty else 0
+                        st.metric("Max Genes/Pathway", max_genes)
+                    with col3:
+                        avg_genes = df_enrich['Count'].mean() if not df_enrich.empty else 0
+                        st.metric("Avg Genes/Pathway", f"{avg_genes:.1f}")
+                    
+                    st.markdown("---")
+                    
+                    # Display enrichment table
+                    display_enrich = df_enrich.copy()
+                    display_enrich.insert(0, "#", range(1, len(display_enrich) + 1))
+                    
+                    st.dataframe(
+                        display_enrich, 
+                        use_container_width=True, 
+                        hide_index=True,
+                        column_config={
+                            "Pathway_Name": st.column_config.TextColumn(width="large"),
+                            "Gene_List": st.column_config.TextColumn(width="large"),
+                            "Count": st.column_config.NumberColumn(width="small")
+                        }
+                    )
+                    
+                    # Visualization
+                    if len(df_enrich) > 0:
+                        st.markdown("---")
+                        st.markdown("**📊 Top Pathways Visualization**")
+                        
+                        top_pathways = df_enrich.head(15)
+                        
+                        fig = px.bar(
+                            top_pathways, 
+                            x="Count", 
+                            y="Pathway_Name", 
+                            orientation="h",
+                            title="Top 15 Pathways by Gene Count",
+                            labels={"Count": "Number of Genes", "Pathway_Name": "KEGG Pathway"},
+                            color="Count",
+                            color_continuous_scale="viridis"
+                        )
+                        
+                        fig.update_layout(height=600, yaxis={'categoryorder':'total ascending'})
+                        fig = apply_plotly_dark_theme(fig)
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Download button
+                    csv_data = df_enrich.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        "⬇️ Download Enrichment Results",
+                        data=csv_data,
+                        file_name="pathway_enrichment_analysis.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.info("ℹ️ No pathway enrichment found for the provided genes.")
+        
+        # Step 3: Disease Associations
+        with tab3:
+            st.markdown('<div class="section-title"><span class="icon">🧬</span>Disease Associations</div>', unsafe_allow_html=True)
+            
+            if 'diseases' not in st.session_state.analysis_results:
+                with st.spinner("🔍 Mapping genes to targets and fetching disease associations..."):
+                    gene_to_target = build_gene_to_ot_target_map(genes_from_input)
+                    df_diseases = collect_disease_links(gene_to_target)
+                    
+                st.session_state.analysis_results['gene_to_target'] = gene_to_target
+                st.session_state.analysis_results['diseases'] = df_diseases
+            else:
+                gene_to_target = st.session_state.analysis_results['gene_to_target']
+                df_diseases = st.session_state.analysis_results['diseases']
+            
+            if not df_diseases.empty:
+                # Summary metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    mapped_genes = len(gene_to_target)
+                    st.metric("Mapped Genes", mapped_genes)
+                with col2:
+                    unique_diseases = df_diseases['disease_name'].nunique()
+                    st.metric("Associated Diseases", unique_diseases)
+                with col3:
+                    avg_score = df_diseases['association_score'].mean()
+                    st.metric("Avg Association Score", f"{avg_score:.3f}")
+                with col4:
+                    high_conf = len(df_diseases[df_diseases['association_score'] > 0.5])
+                    st.metric("High Confidence (>0.5)", high_conf)
+                
+                st.markdown("---")
+                
+                # Disease summary
+                disease_summary = (
+                    df_diseases.groupby(['disease_id', 'disease_name', 'therapeutic_areas'])
+                    .agg({
+                        'gene': lambda x: len(set(x)),
+                        'association_score': ['max', 'mean']
+                    })
+                    .round(3)
+                    .reset_index()
+                )
+                
+                disease_summary.columns = ['Disease_ID', 'Disease_Name', 'Therapeutic_Areas', 'Gene_Count', 'Max_Score', 'Avg_Score']
+                disease_summary = disease_summary.sort_values(['Gene_Count', 'Max_Score'], ascending=[False, False])
+                
+                # Display disease summary
+                display_diseases = disease_summary.copy()
+                display_diseases.insert(0, "#", range(1, len(display_diseases) + 1))
+                
+                st.dataframe(
+                    display_diseases, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "Disease_Name": st.column_config.TextColumn(width="large"),
+                        "Therapeutic_Areas": st.column_config.TextColumn(width="medium"),
+                        "Max_Score": st.column_config.NumberColumn(format="%.3f"),
+                        "Avg_Score": st.column_config.NumberColumn(format="%.3f")
+                    }
+                )
+                
+                # Visualization
+                if len(disease_summary) > 0:
+                    st.markdown("---")
+                    st.markdown("**🎯 Top Disease Associations**")
+                    
+                    top_diseases = disease_summary.head(20)
+                    
+                    fig = px.scatter(
+                        top_diseases,
+                        x="Gene_Count",
+                        y="Max_Score", 
+                        size="Avg_Score",
+                        hover_name="Disease_Name",
+                        title="Disease Associations: Gene Count vs Association Score",
+                        labels={
+                            "Gene_Count": "Number of Associated Genes",
+                            "Max_Score": "Maximum Association Score",
+                            "Avg_Score": "Average Association Score"
+                        }
+                    )
+                    
+                    fig = apply_plotly_dark_theme(fig)
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # Download buttons
+                col_dl1, col_dl2 = st.columns(2)
+                
+                with col_dl1:
+                    csv_detailed = df_diseases.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        "⬇️ Download Detailed Associations",
+                        data=csv_detailed,
+                        file_name="disease_associations_detailed.csv",
+                        mime="text/csv"
+                    )
+                
+                with col_dl2:
+                    csv_summary = disease_summary.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        "⬇️ Download Disease Summary",
+                        data=csv_summary,
+                        file_name="disease_associations_summary.csv",
+                        mime="text/csv"
+                    )
+            else:
+                st.info("ℹ️ No disease associations found. This may occur with non-human genes or if the genes are not well-characterized.")
+        
+        # Step 4: Drug Suggestions
+        with tab4:
+            st.markdown('<div class="section-title"><span class="icon">💊</span>Therapeutic Drug Suggestions</div>', unsafe_allow_html=True)
+            
+            if 'drugs' not in st.session_state.analysis_results:
+                if 'gene_to_target' in st.session_state.analysis_results:
+                    gene_to_target = st.session_state.analysis_results['gene_to_target']
+                    
+                    with st.spinner("💊 Collecting drug suggestions..."):
+                        df_drugs = collect_drug_suggestions(gene_to_target)
+                        
+                    st.session_state.analysis_results['drugs'] = df_drugs
+                else:
+                    st.error("❌ Gene-to-target mapping required. Please complete the Disease Associations step first.")
+                    df_drugs = pd.DataFrame()
+            else:
+                df_drugs = st.session_state.analysis_results['drugs']
+            
+            if not df_drugs.empty:
+                # Apply filters
+                filtered_drugs = df_drugs.copy()
+                
+                if opt_only_phase4:
+                    filtered_drugs = filtered_drugs[
+                        (filtered_drugs['phase_numeric'] >= 4) | 
+                        (filtered_drugs['max_phase_numeric'] >= 4)
+                    ]
+                
+                if not show_investigational:
+                    filtered_drugs = filtered_drugs[
+                        filtered_drugs['status'] != 'Investigational'
+                    ]
+                
+                # Drug summary
+                if not filtered_drugs.empty:
+                    drug_summary = (
+                        filtered_drugs.groupby(['drug_id', 'drug_name', 'drug_type'])
+                        .agg({
+                            'gene': lambda x: len(set(x)),
+                            'target': lambda x: len(set(x)),
+                            'phase_numeric': 'max',
+                            'max_phase_numeric': 'max',
+                            'moa': lambda x: '; '.join(set(filter(None, x))),
+                            'disease_name': lambda x: '; '.join(set(filter(None, x))),
+                            'therapeutic_areas': lambda x: '; '.join(set(filter(None, x)))
+                        })
+                        .reset_index()
+                    )
+                    
+                    drug_summary.columns = [
+                        'Drug_ID', 'Drug_Name', 'Drug_Type', 'Target_Genes', 'Targets', 
+                        'Current_Phase', 'Max_Phase', 'Mechanism_of_Action', 'Diseases', 'Therapeutic_Areas'
+                    ]
+                    
+                    drug_summary['Approved'] = (drug_summary['Max_Phase'] >= 4)
+                    drug_summary = drug_summary.sort_values(['Approved', 'Max_Phase', 'Target_Genes'], ascending=[False, False, False])
+                    
+                    # Summary metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("Total Drugs", len(drug_summary))
+                    with col2:
+                        approved_count = len(drug_summary[drug_summary['Approved']])
+                        st.metric("Approved Drugs", approved_count)
+                    with col3:
+                        investigational = len(drug_summary[drug_summary['Max_Phase'] < 4])
+                        st.metric("Investigational", investigational)
+                    with col4:
+                        multi_target = len(drug_summary[drug_summary['Target_Genes'] > 1])
+                        st.metric("Multi-target", multi_target)
+                    
+                    st.markdown("---")
+                    
+                    # Display drug summary
+                    display_drugs = drug_summary.copy()
+                    display_drugs.insert(0, "#", range(1, len(display_drugs) + 1))
+                    
+                    st.dataframe(
+                        display_drugs, 
+                        use_container_width=True, 
+                        hide_index=True,
+                        column_config={
+                            "Drug_Name": st.column_config.TextColumn(width="medium"),
+                            "Mechanism_of_Action": st.column_config.TextColumn(width="large"),
+                            "Diseases": st.column_config.TextColumn(width="large"),
+                            "Therapeutic_Areas": st.column_config.TextColumn(width="medium"),
+                            "Approved": st.column_config.CheckboxColumn()
+                        }
+                    )
+                    
+                    # Visualization
+                    if len(drug_summary) > 0:
+                        st.markdown("---")
+                        st.markdown("**📊 Drug Development Phases**")
+                        
+                        phase_counts = drug_summary['Max_Phase'].value_counts().sort_index()
+                        phase_labels = {
+                            0: "Preclinical", 1: "Phase I", 2: "Phase II", 
+                            3: "Phase III", 4: "Approved"
+                        }
+                        
+                        phase_df = pd.DataFrame({
+                            'Phase': [phase_labels.get(p, f"Phase {p}") for p in phase_counts.index],
+                            'Count': phase_counts.values
+                        })
+                        
+                        fig = px.pie(
+                            phase_df, 
+                            values='Count', 
+                            names='Phase',
+                            title="Distribution of Drugs by Development Phase"
+                        )
+                        
+                        fig = apply_plotly_dark_theme(fig)
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Download buttons
+                    col_dl1, col_dl2 = st.columns(2)
+                    
+                    with col_dl1:
+                        csv_detailed = filtered_drugs.to_csv(index=False).encode("utf-8")
+                        st.download_button(
+                            "⬇️ Download Detailed Drug Data",
+                            data=csv_detailed,
+                            file_name="drug_suggestions_detailed.csv",
+                            mime="text/csv"
+                        )
+                    
+                    with col_dl2:
+                        csv_summary = drug_summary.to_csv(index=False).encode("utf-8")
+                        st.download_button(
+                            "⬇️ Download Drug Summary",
+                            data=csv_summary,
+                            file_name="drug_suggestions_summary.csv",
+                            mime="text/csv"
+                        )
+                else:
+                    st.info("ℹ️ No drugs match the current filter criteria. Try adjusting the filters above.")
+            else:
+                st.info("ℹ️ No drug suggestions found for the mapped targets.")
+        
+        # Step 5: Network Visualization
+        with tab5:
+            st.markdown('<div class="section-title"><span class="icon">🌐</span>Interactive Network Visualization</div>', unsafe_allow_html=True)
+            
+            # Check if we have the required data
+            has_diseases = 'diseases' in st.session_state.analysis_results and not st.session_state.analysis_results['diseases'].empty
+            has_drugs = 'drugs' in st.session_state.analysis_results and not st.session_state.analysis_results['drugs'].empty
+            has_pathways = 'pathways' in st.session_state.analysis_results and st.session_state.analysis_results['pathways']
+            
+            if has_diseases or has_drugs or has_pathways:
+                col_left, col_right = st.columns(2)
+                
+                # Gene-Disease-Drug Network
+                with col_left:
+                    if has_diseases:
+                        st.markdown("**🔗 Gene-Disease-Drug Network**")
+                        
+                        try:
+                            df_diseases = st.session_state.analysis_results['diseases']
+                            
+                            # Get top diseases by gene count
+                            top_diseases = (
+                                df_diseases.groupby('disease_name')
+                                .agg({'gene': lambda x: len(set(x))})
+                                .sort_values('gene', ascending=False)
+                                .head(10)
+                                .index.tolist()
+                            )
+                            
+                            # Filter data
+                            disease_subset = df_diseases[df_diseases['disease_name'].isin(top_diseases)]
+                            genes_in_network = sorted(set(disease_subset['gene']))
+                            
+                            # Add drug connections if available
+                            drug_connections = []
+                            if has_drugs:
+                                df_drugs = st.session_state.analysis_results['drugs']
+                                drug_subset = df_drugs[
+                                    (df_drugs['gene'].isin(genes_in_network)) & 
+                                    (df_drugs['max_phase_numeric'] >= 3)  # Phase 3+ only
+                                ].head(15)  # Limit drugs
+                                
+                                for _, row in drug_subset.iterrows():
+                                    drug_connections.append((f"Gene: {row['gene']}", f"Drug: {row['drug_name']}"))
+                            
+                            # Create network
+                            nodes = (
+                                [f"Gene: {g}" for g in genes_in_network] + 
+                                [f"Disease: {d}" for d in top_diseases] +
+                                [f"Drug: {drug.split(': ')[1]}" for _, drug in drug_connections]
+                            )
+                            
+                            node_index = {n: i for i, n in enumerate(nodes)}
+                            
+                            # Create links
+                            sources, targets, values = [], [], []
+                            
+                            # Gene-Disease links
+                            for _, row in disease_subset.iterrows():
+                                gene_node = f"Gene: {row['gene']}"
+                                disease_node = f"Disease: {row['disease_name']}"
+                                if gene_node in node_index and disease_node in node_index:
+                                    sources.append(node_index[gene_node])
+                                    targets.append(node_index[disease_node])
+                                    values.append(max(1, int(row['association_score'] * 10)))
+                            
+                            # Gene-Drug links
+                            for gene_drug, drug_node in drug_connections:
+                                if gene_drug in node_index and drug_node in node_index:
+                                    sources.append(node_index[gene_drug])
+                                    targets.append(node_index[drug_node])
+                                    values.append(3)
+                            
+                            if sources:
+                                # Create Sankey diagram
+                                fig_sankey = go.Figure(data=[go.Sankey(
+                                    node=dict(
+                                        pad=15,
+                                        thickness=20,
+                                        line=dict(color="#4a5568", width=2),
+                                        label=nodes,
+                                        color="#2d3748"
+                                    ),
+                                    link=dict(
+                                        source=sources,
+                                        target=targets,
+                                        value=values,
+                                        color="rgba(0, 212, 170, 0.3)"
+                                    )
+                                )])
+                                
+                                fig_sankey.update_layout(
+                                    title_text="Gene → Disease → Drug Connections",
+                                    height=600
+                                )
+                                fig_sankey = apply_plotly_dark_theme(fig_sankey)
+                                
+                                st.plotly_chart(fig_sankey, use_container_width=True)
+                            else:
+                                st.info("Not enough connections for network visualization")
+                                
+                        except Exception as e:
+                            st.error(f"Error creating network: {e}")
+                
+                # Pathway Network
+                with col_right:
+                    if has_pathways:
+                        st.markdown("**🛤️ Gene-Pathway Network**")
+                        
+                        try:
+                            pathway_to_genes = st.session_state.analysis_results['pathways']
+                            
+                            # Get top pathways
+                            top_pathways = sorted(
+                                pathway_to_genes.items(), 
+                                key=lambda x: len(x[1]), 
+                                reverse=True
+                            )[:8]
+                            
+                            # Create network graph
+                            G = nx.Graph()
+                            
+                            for pathway_id, genes in top_pathways:
+                                pathway_name = kegg_pathway_name(pathway_id) or pathway_id.replace("path:", "")
+                                pathway_name = pathway_name[:30] + "..." if len(pathway_name) > 30 else pathway_name
+                                
+                                for gene in genes:
+                                    G.add_edge(f"P: {pathway_name}", f"G: {gene}")
+                            
+                            if G.nodes():
+                                # Calculate layout
+                                pos = nx.spring_layout(G, k=1, iterations=50, seed=42)
+                                
+                                # Prepare edge traces
+                                edge_x, edge_y = [], []
+                                for edge in G.edges():
+                                    x0, y0 = pos[edge[0]]
+                                    x1, y1 = pos[edge[1]]
+                                    edge_x.extend([x0, x1, None])
+                                    edge_y.extend([y0, y1, None])
+                                
+                                # Prepare node traces
+                                node_x = [pos[node][0] for node in G.nodes()]
+                                node_y = [pos[node][1] for node in G.nodes()]
+                                node_text = list(G.nodes())
+                                node_colors = ['#00d4aa' if n.startswith('P:') else '#667eea' for n in node_text]
+                                
+                                # Create figure
+                                fig_network = go.Figure()
+                                
+                                # Add edges
+                                fig_network.add_trace(go.Scatter(
+                                    x=edge_x, y=edge_y,
+                                    line=dict(width=1, color='rgba(255,255,255,0.3)'),
+                                    hoverinfo='none',
+                                    mode='lines'
+                                ))
+                                
+                                # Add nodes
+                                fig_network.add_trace(go.Scatter(
+                                    x=node_x, y=node_y,
+                                    mode='markers+text',
+                                    hoverinfo='text',
+                                    text=[n.split(': ')[1] for n in node_text],
+                                    textposition="middle center",
+                                    hovertext=node_text,
+                                    marker=dict(
+                                        size=10,
+                                        color=node_colors,
+                                        line=dict(width=2, color='white')
+                                    )
+                                ))
+                                
+                                fig_network.update_layout(
+                                    title="Gene-Pathway Interaction Network",
+                                    showlegend=False,
+                                    hovermode='closest',
+                                    margin=dict(b=20,l=5,r=5,t=40),
+                                    annotations=[
+                                        dict(
+                                            text="Pathways (green) connected to genes (blue)",
+                                            showarrow=False,
+                                            xref="paper", yref="paper",
+                                            x=0.005, y=-0.002,
+                                            xanchor='left', yanchor='bottom',
+                                            font=dict(color='#b3b8c5', size=12)
+                                        )
+                                    ],
+                                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                    height=600
+                                )
+                                
+                                fig_network = apply_plotly_dark_theme(fig_network)
+                                st.plotly_chart(fig_network, use_container_width=True)
+                            else:
+                                st.info("No pathway connections available for visualization")
+                                
+                        except Exception as e:
+                            st.error(f"Error creating pathway network: {e}")
+            else:
+                st.info("🔄 Complete the previous analysis steps to generate network visualizations.")
+    
+    # Footer
+    st.markdown("---")
+    st.markdown("""
+    <div style='text-align: center; color: #8b92a5; font-size: 0.9rem; padding: 1rem;'>
+        <p><strong>Gene2Therapy</strong> • Enhanced dark mode interface with optimized API integration</p>
+        <p>Data sources: NCBI E-utilities, KEGG REST API, OpenTargets GraphQL • Results cached for 1 hour</p>
+        <p>⚠️ Always validate findings with primary literature and clinical sources</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-                    drugs_set = []
-                    if 'df_drugs' in locals() and not df_drugs.empty:
-                        tmp = df_drugs[df_drugs['gene'].isin(genes_set)].copy()
-                        tmp['phase_rank'] = pd.to_numeric(tmp['phase'], errors='coerce').fillna(0).astype(int)
-                        tmp = tmp.sort_values('phase_rank', ascending=False)
-                        drugs_set = sorted(set(tmp.head(100)['drug_name']))[:15]
-
-                    nodes = [f"G: {g}" for g in genes_set] + [f"D: {d}" for d in dis_list] + [f"Rx: {d}" for d in drugs_set]
-                    node_index = {n: i for i, n in enumerate(nodes)}
-
-                    links = []
-                    for d in dis_list:
-                        sub = df_dis[df_dis["disease_name"] == d]
-                        for g, cnt in Counter(sub["gene"]).items():
-                            links.append((node_index[f"G: {g}"], node_index[f"D: {d}"], max(cnt, 1)))
-                    if drugs_set and 'df_drugs' in locals() and not df_drugs.empty:
-                        tmp = df_drugs[df_drugs['drug_name'].isin(drugs_set) & df_drugs['gene'].isin(genes_set)]
-                        for _, row in tmp.iterrows():
-                            s = node_index[f"G: {row['gene']}"]
-                            t = node_index.get(f"Rx: {row['drug_name']}")
-                            if t is not None:
-                                val = int(pd.to_numeric(row.get('phase'), errors='coerce') or 0)
-                                links.append((s, t, max(val, 1)))
-
-                    if links:
-                        sources = [s for s, _, _ in links]
-                        targets = [t for _, t, _ in links]
-                        values = [v for *_, v in links]
-
-                        light = THEME == "light"
-                        node_color = "#e5e7eb" if light else "#1f2937"
-                        link_color = "rgba(37,99,235,.35)" if light else "rgba(255,255,255,.25)"
-                        border_col = "#cbd5e1" if light else "#111827"
-
-                        fig_sankey = go.Figure(data=[go.Sankey(
-                            node=dict(
-                                pad=12, thickness=14, label=nodes,
-                                color=node_color, line=dict(color=border_col, width=1)
-                            ),
-                            link=dict(source=sources, target=targets, value=values, color=link_color)
-                        )])
-                        fig_sankey.update_layout(title_text="Gene → Disease (→ Drug) connections", height=700)
-                        fig_sankey = apply_plotly_theme(fig_sankey)
-                        st.plotly_chart(fig_sankey, use_container_width=True)
-            except Exception as e:
-                st.warning(f"Sankey could not be drawn: {e}")
-
-        with colB:
-            try:
-                if 'df_enrich' in locals() and not df_enrich.empty:
-                    top_paths = df_enrich.head(8).copy()
-                    edges = []
-                    for _, r in top_paths.iterrows():
-                        p = r["Pathway_Name"] or r["Pathway_ID"]
-                        for g in (r["Genes"] or "").split(";"):
-                            if g:
-                                edges.append((p, g))
-                    if edges:
-                        G = nx.Graph()
-                        G.add_edges_from(edges)
-                        pos = nx.spring_layout(G, seed=42, k=0.7)
-                        xe, ye = [], []
-                        for u, v in G.edges():
-                            xe += [pos[u][0], pos[v][0], None]
-                            ye += [pos[u][1], pos[v][1], None]
-                        fig_net = go.Figure()
-                        fig_net.add_trace(go.Scatter(x=xe, y=ye, mode='lines', opacity=0.5))
-                        fig_net.add_trace(go.Scatter(
-                            x=[pos[n][0] for n in G.nodes()],
-                            y=[pos[n][1] for n in G.nodes()],
-                            mode='markers+text',
-                            text=list(G.nodes()),
-                            textposition='top center',
-                        ))
-                        fig_net.update_layout(title="Gene–Pathway network (top pathways by hit count)", height=700, showlegend=False)
-                        fig_net = apply_plotly_theme(fig_net)
-                        st.plotly_chart(fig_net, use_container_width=True)
-            except Exception as e:
-                st.warning(f"Network could not be drawn: {e}")
-
-st.markdown("---")
-st.caption("APIs: NCBI E-utilities, KEGG REST, OpenTargets GraphQL. Data is fetched live and cached for 1h. Validate findings with primary sources.")
+if __name__ == "__main__":
+    main()
