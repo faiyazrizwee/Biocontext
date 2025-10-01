@@ -1525,20 +1525,32 @@ def main():
                     
                     st.markdown("---")
                     
-                    # Display drugs table
-                    display_drugs = filtered_drugs.copy()
+                    # Create display dataframe without phase_numeric and max_phase_numeric columns
+                    display_columns = [
+                        'gene', 'gene_symbol', 'drug_id', 'drug_name', 'drug_type', 
+                        'phase', 'status', 'max_phase', 'moa', 'disease_name', 'therapeutic_areas'
+                    ]
+                    
+                    # Filter to only include columns that exist in the dataframe
+                    available_columns = [col for col in display_columns if col in filtered_drugs.columns]
+                    display_drugs = filtered_drugs[available_columns].copy()
                     display_drugs.insert(0, "#", range(1, len(display_drugs) + 1))
                     
                     st.dataframe(
                         display_drugs, 
                         use_container_width=True,
                         column_config={
-                            "drug_name": st.column_config.TextColumn("Drug Name", width="medium"),
+                            "#": st.column_config.NumberColumn(width="small"),
                             "gene": st.column_config.TextColumn("Gene", width="small"),
+                            "gene_symbol": st.column_config.TextColumn("Gene Symbol", width="small"),
+                            "drug_name": st.column_config.TextColumn("Drug Name", width="medium"),
+                            "drug_type": st.column_config.TextColumn("Drug Type", width="small"),
                             "phase": st.column_config.TextColumn("Phase", width="small"),
                             "status": st.column_config.TextColumn("Status", width="small"),
-                            "moa": st.column_config.TextColumn("Mechanism", width="large"),
+                            "max_phase": st.column_config.TextColumn("Max Phase", width="small"),
+                            "moa": st.column_config.TextColumn("Mechanism of Action", width="large"),
                             "disease_name": st.column_config.TextColumn("Disease", width="medium"),
+                            "therapeutic_areas": st.column_config.TextColumn("Therapeutic Areas", width="medium"),
                         }
                     )
                     
@@ -1564,11 +1576,12 @@ def main():
                         fig = apply_plotly_dark_theme(fig)
                         st.plotly_chart(fig, use_container_width=True)
                     
-                    # Download button
-                    csv_data = filtered_drugs.to_csv(index=False).encode("utf-8")
+                    # Download button - also remove numeric columns from download
+                    download_columns = [col for col in display_columns if col in filtered_drugs.columns]
+                    download_data = filtered_drugs[download_columns].to_csv(index=False).encode("utf-8")
                     st.download_button(
                         "⬇️ Download Drug Suggestions",
-                        data=csv_data,
+                        data=download_data,
                         file_name="drug_suggestions.csv",
                         mime="text/csv"
                     )
@@ -1582,7 +1595,6 @@ def main():
                 - There are temporary API issues
                 - Try using more common cancer genes (TP53, EGFR, BRAF, etc.) for testing
                 """)
-
         # Step 5: Network Visualization
         with tab5:
             st.markdown('<div class="section-title"><span class="icon">🌐</span>Interactive Network Visualization</div>', unsafe_allow_html=True)
