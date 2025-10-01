@@ -724,12 +724,14 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
-    """Enhanced drug suggestions fetch with improved error handling"""
+    """FIXED: Enhanced drug suggestions fetch with improved error handling and correct query"""
     query = """
     query KnownDrugs($id: String!, $size: Int!) {
       target(ensemblId: $id) {
         id
+        approvedSymbol
         knownDrugs(size: $size) {
+          count
           rows {
             phase
             status
@@ -745,10 +747,6 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
               name 
               therapeuticAreas { name }
             }
-            clinicalTrial {
-              id
-              status
-            }
           }
         }
       }
@@ -757,47 +755,67 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
     
     try:
         data = ot_query(query, {"id": ensembl_id, "size": size})
-        rows = (((data or {}).get("data", {})).get("target", {}) or {}).get("knownDrugs", {}).get("rows", [])
+        
+        # Debug: Log the response structure
+        logger.info(f"OpenTargets response for {ensembl_id}: {data.keys() if data else 'No data'}")
+        
+        target_data = ((data or {}).get("data", {})).get("target", {})
+        if not target_data:
+            logger.warning(f"No target data found for {ensembl_id}")
+            return pd.DataFrame()
+            
+        known_drugs = target_data.get("knownDrugs", {})
+        rows = known_drugs.get("rows", [])
+        
+        logger.info(f"Found {len(rows)} drug rows for target {ensembl_id}")
         
         if not rows:
-            logger.info(f"No drugs found for target: {ensembl_id}")
-            return pd.DataFrame(columns=[
-                "target", "drug_id", "drug_name", "drug_type", "phase", "status", 
-                "max_phase", "moa", "disease_name", "therapeutic_areas", "trial_status"
-            ])
+            return pd.DataFrame()
 
         # Process data
         out = []
         for r in rows:
             drug_obj = r.get("drug") or {}
             disease_obj = r.get("disease") or {}
-            clinical_trial = r.get("clinicalTrial") or {}
             
             therapeutic_areas = disease_obj.get("therapeuticAreas", [])
             ta_names = "; ".join([ta.get("name", "") for ta in therapeutic_areas if ta.get("name")])
+            
+            # Handle phase conversion safely
+            phase = r.get("phase")
+            try:
+                phase_numeric = int(phase) if phase and phase.isdigit() else 0
+            except:
+                phase_numeric = 0
+                
+            max_phase = drug_obj.get("maximumClinicalTrialPhase")
+            try:
+                max_phase_numeric = int(max_phase) if max_phase and str(max_phase).isdigit() else 0
+            except:
+                max_phase_numeric = 0
             
             out.append({
                 "target": ensembl_id,
                 "drug_id": drug_obj.get("id"),
                 "drug_name": drug_obj.get("name"),
                 "drug_type": drug_obj.get("drugType"),
-                "phase": r.get("phase"),
+                "phase": phase,
                 "status": r.get("status"),
-                "max_phase": drug_obj.get("maximumClinicalTrialPhase"),
+                "max_phase": max_phase,
                 "moa": r.get("mechanismOfAction"),
                 "disease_name": disease_obj.get("name"),
                 "therapeutic_areas": ta_names,
-                "trial_status": clinical_trial.get("status"),
+                "phase_numeric": phase_numeric,
+                "max_phase_numeric": max_phase_numeric,
             })
         
-        return pd.DataFrame(out)
+        result_df = pd.DataFrame(out)
+        logger.info(f"Processed {len(result_df)} drug entries for {ensembl_id}")
+        return result_df
     
     except Exception as e:
         logger.error(f"Error fetching drugs for target {ensembl_id}: {e}")
-        return pd.DataFrame(columns=[
-            "target", "drug_id", "drug_name", "drug_type", "phase", "status", 
-            "max_phase", "moa", "disease_name", "therapeutic_areas", "trial_status"
-        ])
+        return pd.DataFrame()
 
 # ----------------------------
 # Enhanced Core Functions
@@ -909,6 +927,9 @@ def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens")
             hit = ot_target_from_symbol(g, species)
             if hit:
                 g2t[g] = hit
+                logger.info(f"Mapped {g} to {hit.get('id')}")
+            else:
+                logger.warning(f"No target found for {g}")
             time.sleep(0.05)  # Rate limiting
         except Exception as e:
             logger.error(f"Error mapping {g}: {e}")
@@ -943,7 +964,7 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
     return pd.DataFrame(columns=["gene", "gene_symbol", "target", "disease_id", "disease_name", "association_score", "therapeutic_areas"])
 
 def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
-    """Enhanced drug collection with better filtering and error handling"""
+    """FIXED: Enhanced drug collection with better filtering and error handling"""
     frames = []
     
     for g, tgt in gene_to_target.items():
@@ -953,29 +974,26 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
             
         try:
             df = ot_drugs_for_target(tid)
-            if df.empty:
-                continue
-            df.insert(0, "gene", g)
-            df.insert(1, "gene_symbol", tgt.get("approvedSymbol", g))
-            frames.append(df)
+            if not df.empty:
+                df.insert(0, "gene", g)
+                df.insert(1, "gene_symbol", tgt.get("approvedSymbol", g))
+                frames.append(df)
+                logger.info(f"Found {len(df)} drugs for {g}")
+            else:
+                logger.info(f"No drugs found for {g}")
             time.sleep(0.05)  # Rate limiting
         except Exception as e:
             logger.error(f"Error collecting drugs for {g}: {e}")
     
     if frames:
         combined = pd.concat(frames, ignore_index=True)
-        # Convert numeric fields
-        combined["phase_numeric"] = pd.to_numeric(combined["phase"], errors="coerce").fillna(0).astype(int)
-        combined["max_phase_numeric"] = pd.to_numeric(combined["max_phase"], errors="coerce").fillna(0).astype(int)
         # Remove duplicates
         combined = combined.drop_duplicates(subset=["gene", "drug_id", "disease_name"])
+        logger.info(f"Total drugs collected: {len(combined)}")
         return combined
     
-    return pd.DataFrame(columns=[
-        "gene", "gene_symbol", "target", "drug_id", "drug_name", "drug_type", 
-        "phase", "status", "max_phase", "moa", "disease_name", "therapeutic_areas", "trial_status",
-        "phase_numeric", "max_phase_numeric"
-    ])
+    logger.warning("No drugs collected from any target")
+    return pd.DataFrame()
 
 # ----------------------------
 # Enhanced Plotly Theme
@@ -1135,14 +1153,14 @@ def main():
     with col_phase:
         opt_only_phase4 = st.checkbox(
             "✅ Show only approved drugs (Phase 4+)",
-            value=True,
+            value=False,  # Changed default to show more drugs for testing
             help="Filter to show only drugs that have completed clinical trials"
         )
     
     with col_type:
         show_investigational = st.checkbox(
             "🧪 Include investigational compounds",
-            value=False,
+            value=True,  # Changed default to show more drugs for testing
             help="Include drugs in earlier clinical trial phases"
         )
     
@@ -1450,13 +1468,14 @@ def main():
             else:
                 st.info("ℹ️ No disease associations found. This may occur with non-human genes or if the genes are not well-characterized.")
         
+        # Step 4: Drug Suggestions - FIXED
         with tab4:
             st.markdown('<div class="section-title"><span class="icon">💊</span>Therapeutic Drug Suggestions</div>', unsafe_allow_html=True)
             
             if 'drugs' not in st.session_state.analysis_results:
                 if 'gene_to_target' in st.session_state.analysis_results:
                     gene_to_target = st.session_state.analysis_results['gene_to_target']
-                    with st.spinner("💊 Collecting drug suggestions..."):
+                    with st.spinner("💊 Collecting drug suggestions from OpenTargets..."):
                         df_drugs = collect_drug_suggestions(gene_to_target)
                     st.session_state.analysis_results['drugs'] = df_drugs
                 else:
@@ -1468,22 +1487,101 @@ def main():
             if not df_drugs.empty:
                 # Apply filters
                 filtered_drugs = df_drugs.copy()
+                
+                # Debug info
+                st.markdown(f"**📊 Found {len(filtered_drugs)} total drug entries**")
+                
                 if opt_only_phase4:
+                    before_filter = len(filtered_drugs)
                     filtered_drugs = filtered_drugs[
                         (filtered_drugs['phase_numeric'] >= 4) | 
                         (filtered_drugs['max_phase_numeric'] >= 4)
                     ]
+                    st.markdown(f"**🔍 Phase 4+ filter: {before_filter} → {len(filtered_drugs)} entries**")
+                
                 if not show_investigational:
+                    before_filter = len(filtered_drugs)
                     filtered_drugs = filtered_drugs[
                         filtered_drugs['status'] != 'Investigational'
                     ]
+                    st.markdown(f"**🔍 Non-investigational filter: {before_filter} → {len(filtered_drugs)} entries**")
                 
                 if not filtered_drugs.empty:
-                    st.dataframe(filtered_drugs, use_container_width=True)
+                    # Summary metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        unique_drugs = filtered_drugs['drug_name'].nunique()
+                        st.metric("Unique Drugs", unique_drugs)
+                    with col2:
+                        unique_targets = filtered_drugs['gene'].nunique()
+                        st.metric("Targeted Genes", unique_targets)
+                    with col3:
+                        avg_phase = filtered_drugs['phase_numeric'].mean()
+                        st.metric("Avg Phase", f"{avg_phase:.1f}")
+                    with col4:
+                        approved_drugs = len(filtered_drugs[filtered_drugs['phase_numeric'] >= 4])
+                        st.metric("Approved Drugs", approved_drugs)
+                    
+                    st.markdown("---")
+                    
+                    # Display drugs table
+                    display_drugs = filtered_drugs.copy()
+                    display_drugs.insert(0, "#", range(1, len(display_drugs) + 1))
+                    
+                    st.dataframe(
+                        display_drugs, 
+                        use_container_width=True,
+                        column_config={
+                            "drug_name": st.column_config.TextColumn("Drug Name", width="medium"),
+                            "gene": st.column_config.TextColumn("Gene", width="small"),
+                            "phase": st.column_config.TextColumn("Phase", width="small"),
+                            "status": st.column_config.TextColumn("Status", width="small"),
+                            "moa": st.column_config.TextColumn("Mechanism", width="large"),
+                            "disease_name": st.column_config.TextColumn("Disease", width="medium"),
+                        }
+                    )
+                    
+                    # Visualization
+                    if len(filtered_drugs) > 0:
+                        st.markdown("---")
+                        st.markdown("**📈 Drug Development Phase Distribution**")
+                        
+                        phase_counts = filtered_drugs['phase'].value_counts().reset_index()
+                        phase_counts.columns = ['Phase', 'Count']
+                        phase_counts = phase_counts.sort_values('Phase')
+                        
+                        fig = px.bar(
+                            phase_counts,
+                            x='Phase',
+                            y='Count',
+                            title='Drugs by Clinical Trial Phase',
+                            labels={'Phase': 'Clinical Trial Phase', 'Count': 'Number of Drugs'},
+                            color='Count',
+                            color_continuous_scale='viridis'
+                        )
+                        
+                        fig = apply_plotly_dark_theme(fig)
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Download button
+                    csv_data = filtered_drugs.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        "⬇️ Download Drug Suggestions",
+                        data=csv_data,
+                        file_name="drug_suggestions.csv",
+                        mime="text/csv"
+                    )
                 else:
-                    st.info("ℹ️ No drugs match the current filter criteria. Adjust filters or check gene selection.")
+                    st.info("ℹ️ No drugs match the current filter criteria. Try adjusting the filters or check if your genes have known drug associations.")
             else:
-                st.info("ℹ️ No drug suggestions available. This could happen if the mapped genes do not have drugs in OpenTargets.")
+                st.info("ℹ️ No drug suggestions available. This could happen if:")
+                st.markdown("""
+                - The mapped genes don't have known drugs in OpenTargets
+                - The genes are not well-characterized for drug targeting
+                - There are temporary API issues
+                - Try using more common cancer genes (TP53, EGFR, BRAF, etc.) for testing
+                """)
 
         # Step 5: Network Visualization
         with tab5:
@@ -1523,8 +1621,7 @@ def main():
                             if has_drugs:
                                 df_drugs = st.session_state.analysis_results['drugs']
                                 drug_subset = df_drugs[
-                                    (df_drugs['gene'].isin(genes_in_network)) & 
-                                    (df_drugs['max_phase_numeric'] >= 3)  # Phase 3+ only
+                                    (df_drugs['gene'].isin(genes_in_network))
                                 ].head(15)  # Limit drugs
                                 
                                 for _, row in drug_subset.iterrows():
