@@ -895,9 +895,9 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
     return pd.DataFrame(results), pathway_to_genes
 
 def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
-    """Enhanced enrichment computation with better sorting"""
+    """Enhanced enrichment computation with better sorting - REMOVED Genes column"""
     if not pathway_to_genes:
-        return pd.DataFrame(columns=["Pathway_ID", "Pathway_Name", "Count", "Genes", "Gene_List"])
+        return pd.DataFrame(columns=["Pathway_ID", "Pathway_Name", "Count", "Gene_List"])
         
     rows = []
     for pid, genes in pathway_to_genes.items():
@@ -908,7 +908,6 @@ def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
             "Pathway_ID": pid.replace("path:", ""),
             "Pathway_Name": pathway_name,
             "Count": len(genes),
-            "Genes": ";".join(gene_list),
             "Gene_List": ", ".join(gene_list[:10]) + ("..." if len(gene_list) > 10 else "")
         })
     
@@ -1160,7 +1159,7 @@ def main():
     with col_type:
         show_investigational = st.checkbox(
             "🧪 Include investigational compounds",
-            value=False,  # Changed default to show more drugs for testing
+            value=True,  # Changed default to show more drugs for testing
             help="Include drugs in earlier clinical trial phases"
         )
     
@@ -1308,8 +1307,8 @@ def main():
                     
                     st.markdown("---")
                     
-                    # Display enrichment table
-                    display_enrich = df_enrich.copy()
+                    # Display enrichment table - REMOVED Genes column
+                    display_enrich = df_enrich[['Pathway_ID', 'Pathway_Name', 'Count', 'Gene_List']].copy()
                     display_enrich.insert(0, "#", range(1, len(display_enrich) + 1))
                     
                     st.dataframe(
@@ -1346,8 +1345,9 @@ def main():
                         
                         st.plotly_chart(fig, use_container_width=True)
                     
-                    # Download button
-                    csv_data = df_enrich.to_csv(index=False).encode("utf-8")
+                    # Download button - also remove Genes column from download
+                    download_enrich = df_enrich[['Pathway_ID', 'Pathway_Name', 'Count', 'Gene_List']].copy()
+                    csv_data = download_enrich.to_csv(index=False).encode("utf-8")
                     st.download_button(
                         "⬇️ Download Enrichment Results",
                         data=csv_data,
@@ -1468,7 +1468,7 @@ def main():
             else:
                 st.info("ℹ️ No disease associations found. This may occur with non-human genes or if the genes are not well-characterized.")
         
-        # Step 4: Drug Suggestions - FIXED
+        # Step 4: Drug Suggestions - FIXED with corrected Avg Phase calculation
         with tab4:
             st.markdown('<div class="section-title"><span class="icon">💊</span>Therapeutic Drug Suggestions</div>', unsafe_allow_html=True)
             
@@ -1507,7 +1507,11 @@ def main():
                     st.markdown(f"**🔍 Non-investigational filter: {before_filter} → {len(filtered_drugs)} entries**")
                 
                 if not filtered_drugs.empty:
-                    # Summary metrics
+                    # FIXED: Correct Avg Phase calculation - only consider valid phases > 0
+                    valid_phases = filtered_drugs[filtered_drugs['phase'] > 0]['phase']
+                    avg_phase = valid_phases.mean() if len(valid_phases) > 0 else 0
+                    
+                    # Summary metrics with CORRECTED Avg Phase
                     col1, col2, col3, col4 = st.columns(4)
                     
                     with col1:
@@ -1517,7 +1521,7 @@ def main():
                         unique_targets = filtered_drugs['gene'].nunique()
                         st.metric("Targeted Genes", unique_targets)
                     with col3:
-                        avg_phase = filtered_drugs['phase_numeric'].mean()
+                        # CORRECTED: Show actual average phase
                         st.metric("Avg Phase", f"{avg_phase:.1f}")
                     with col4:
                         approved_drugs = len(filtered_drugs[filtered_drugs['phase_numeric'] >= 4])
@@ -1595,6 +1599,7 @@ def main():
                 - There are temporary API issues
                 - Try using more common cancer genes (TP53, EGFR, BRAF, etc.) for testing
                 """)
+
         # Step 5: Network Visualization
         with tab5:
             st.markdown('<div class="section-title"><span class="icon">🌐</span>Interactive Network Visualization</div>', unsafe_allow_html=True)
