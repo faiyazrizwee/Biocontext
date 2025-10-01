@@ -42,6 +42,8 @@ def build_css(theme: str) -> str:
         border = "#e6eaf2"; border_strong = "#cbd5e1"
         input_bg = "#ffffff"; placeholder = "#6b7280"
         uploader_bg = "#ffffff"  # force white in light
+        uploader_text = "#111827"  # dark text for light theme
+        uploader_border = "#cbd5e1"  # light theme border
         # Analyze button palette
         btn1, btn2 = "#4338ca", "#2563eb"
         btn1_h, btn2_h = "#3730a3", "#1d4ed8"
@@ -56,6 +58,8 @@ def build_css(theme: str) -> str:
         border = "#252525"; border_strong = "#3A3A3A"
         input_bg = "#343A40"; placeholder = "#9AA0A6"
         uploader_bg = "#343A40"
+        uploader_text = "#FFFFFF"  # white text for dark theme
+        uploader_border = "#3A3A3A"  # dark theme border
         btn1, btn2 = "#0f766e", "#10b981"
         btn1_h, btn2_h = "#115e59", "#059669"
         btn1_a, btn2_a = "#0b534b", "#047857"
@@ -72,7 +76,7 @@ def build_css(theme: str) -> str:
     --muted:{muted}; --sub:{sub};
     --border:{border}; --border-strong:{border_strong};
     --input-bg:{input_bg}; --placeholder:{placeholder};
-    --uploader-bg:{uploader_bg};
+    --uploader-bg:{uploader_bg}; --uploader-text:{uploader_text}; --uploader-border:{uploader_border};
     --btn1:{btn1}; --btn2:{btn2};
     --btn1-hover:{btn1_h}; --btn2-hover:{btn2_h};
     --btn1-active:{btn1_a}; --btn2-active:{btn2_a};
@@ -141,35 +145,64 @@ def build_css(theme: str) -> str:
     background-color:var(--input-bg) !important; color:var(--text) !important; }}
   .stTextInput input::placeholder, .stTextArea textarea::placeholder {{ color:var(--placeholder) !important; opacity:1; }}
 
-  /* ===== File uploader =====
-     Force white surface in light, theme text, and disable drag-and-drop so only Browse works.
-  */
-  /* Paint ALL layers of the dropzone */
+  /* ===== File uploader - COMPREHENSIVE FIX ===== */
+  /* Main container */
+  .stFileUploader {{ background: transparent !important; }}
+  
+  /* Dropzone - target ALL nested elements */
   .stFileUploader [data-testid="stFileUploaderDropzone"],
-  .stFileUploader [data-testid="stFileUploaderDropzone"] *:not(button):not(button *),
-  .stFileUploader [data-testid="stFileUploaderDropzone"]::before,
-  .stFileUploader [data-testid="stFileUploaderDropzone"]::after,
+  .stFileUploader [data-testid="stFileUploaderDropzone"] *,
   .stFileUploader [data-testid="stFileUploaderDropzone"] > div,
-  .stFileUploader [data-testid="stFileUploaderDropzone"] > div > div {{
+  .stFileUploader [data-testid="stFileUploaderDropzone"] > div > div,
+  .stFileUploader [data-testid="stFileUploaderDropzone"] > div > div > div,
+  .stFileUploader [data-testid="stFileUploaderDropzone"] label,
+  .stFileUploader [data-testid="stFileUploaderDropzone"] span,
+  .stFileUploader [data-testid="stFileUploaderDropzone"] p {{
     background: var(--uploader-bg) !important;
     background-color: var(--uploader-bg) !important;
-    filter: none !important;
-    color: var(--text) !important;
+    color: var(--uploader-text) !important;
   }}
-  .stFileUploader [data-testid="stFileUploaderDropzone"] svg path {{ fill: var(--text) !important; }}
+  
+  /* Border and layout */
   .stFileUploader [data-testid="stFileUploaderDropzone"] {{
-    border:1.5px dashed var(--border-strong) !important;
-    border-radius:12px !important; box-shadow:none !important;
+    border: 1.5px dashed var(--uploader-border) !important;
+    border-radius: 12px !important;
+    box-shadow: none !important;
+    padding: 2rem !important;
+  }}
+  
+  /* SVG icons */
+  .stFileUploader [data-testid="stFileUploaderDropzone"] svg,
+  .stFileUploader [data-testid="stFileUploaderDropzone"] svg path {{
+    fill: var(--uploader-text) !important;
+  }}
+  
+  /* Browse button styling */
+  .stFileUploader [data-testid="stFileUploaderDropzone"] button {{
+    background: var(--btn1) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    padding: 0.5rem 1rem !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+  }}
+  
+  .stFileUploader [data-testid="stFileUploaderDropzone"] button:hover {{
+    background: var(--btn1-hover) !important;
+  }}
+  
+  /* File info text */
+  .stFileUploader [data-testid="stFileUploaderDropzone"] small,
+  .stFileUploader [data-testid="stFileUploaderDropzone"] .uploadedFileName {{
+    color: var(--uploader-text) !important;
+    opacity: 0.8 !important;
   }}
 
-  /* Disable zone-wide click + drop, but keep the Browse button active */
-  .stFileUploader [data-testid="stFileUploaderDropzone"] > div:not(:has(button)) {{ pointer-events:none !important; }}
-  .stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"],
-  .stFileUploader [data-testid="stFileUploaderDropzone"] label,
-  .stFileUploader [data-testid="stFileUploaderDropzone"] [role="button"] {{ pointer-events:none !important; }}
-  .stFileUploader [data-testid="stFileUploaderDropzone"] button,
-  .stFileUploader [data-testid="stFileUploaderDropzone"] button * {{
-    pointer-events:auto !important; cursor:pointer !important; position:relative; z-index:2;
+  /* Override any remaining dark backgrounds */
+  .stFileUploader [data-testid="stFileUploaderDropzone"]::before,
+  .stFileUploader [data-testid="stFileUploaderDropzone"]::after {{
+    display: none !important;
   }}
 
   /* Selectbox surface + menu */
@@ -192,6 +225,36 @@ def build_css(theme: str) -> str:
 
   /* Alerts – success tint */
   div[role="alert"]{{ background:var(--success-bg) !important; color:var(--text) !important; }}
+
+  /* Section titles */
+  .section-title {{ 
+    font-size: 1.2rem; 
+    font-weight: 700; 
+    color: var(--text); 
+    margin: 1rem 0 0.5rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }}
+  .section-title .icon {{ 
+    font-size: 1.1rem; 
+  }}
+  
+  /* Hints */
+  .hint {{ 
+    color: var(--sub); 
+    font-size: 0.9rem; 
+    margin-bottom: 1rem; 
+    opacity: 0.9;
+  }}
+
+  /* Drug filters */
+  .drug-filters {{ 
+    font-size: 1rem; 
+    font-weight: 600; 
+    color: var(--text); 
+    margin: 1.5rem 0 0.75rem 0; 
+  }}
 
   /* Plot text readable */
   .js-plotly-plot .plotly .xtick text,
