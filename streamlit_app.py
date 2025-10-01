@@ -1160,7 +1160,7 @@ def main():
     with col_type:
         show_investigational = st.checkbox(
             "🧪 Include investigational compounds",
-            value=True,  # Changed default to show more drugs for testing
+            value=False,  # Changed default to show more drugs for testing
             help="Include drugs in earlier clinical trial phases"
         )
     
