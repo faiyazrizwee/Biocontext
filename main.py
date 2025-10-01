@@ -27,206 +27,205 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-# ---------- Global CSS (DARK ONLY) ----------
-st.markdown(
+
+# ---- Theme toggle (after set_page_config) ----
+mode = st.sidebar.toggle("🌗 Light theme", value=False)  # False = Dark (default)
+THEME = "light" if mode else "dark"
+
+
+# ---- Build CSS for the chosen theme ----
+def build_css(theme: str) -> str:
+    if theme == "light":
+        # Light tokens
+        bg = "#f7f8fb"; panel = "#ffffff"; text = "#111827"
+        muted = "#4b5563"; sub = "#374151"
+        border = "#e6eaf2"; border_strong = "#cbd5e1"
+        input_bg = "#ffffff"; placeholder = "#6b7280"
+        uploader_bg = "#ffffff"  # force white in light
+        # Analyze button palette
+        btn1, btn2 = "#4338ca", "#2563eb"
+        btn1_h, btn2_h = "#3730a3", "#1d4ed8"
+        btn1_a, btn2_a = "#312e81", "#1e40af"
+        hero_bg = "linear-gradient(135deg, #eef2ff 0%, #e0f2fe 100%)"
+        hero1, hero2 = "#1f2937", "#6b7280"
+        success_bg = "#CBEED7"
+    else:
+        # Dark tokens
+        bg = "#212529"; panel = "#343A40"; text = "#FFFFFF"
+        muted = "#E5E7EB"; sub = "#D1D5DB"
+        border = "#252525"; border_strong = "#3A3A3A"
+        input_bg = "#343A40"; placeholder = "#9AA0A6"
+        uploader_bg = "#343A40"
+        btn1, btn2 = "#0f766e", "#10b981"
+        btn1_h, btn2_h = "#115e59", "#059669"
+        btn1_a, btn2_a = "#0b534b", "#047857"
+        hero_bg = "linear-gradient(135deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.02) 100%)"
+        hero1, hero2 = "#FFFFFF", "#B3B3B3"
+        success_bg = "rgba(16,185,129,.22)"
+
+    return f"""
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+
+  :root {{
+    --bg:{bg}; --panel:{panel}; --text:{text};
+    --muted:{muted}; --sub:{sub};
+    --border:{border}; --border-strong:{border_strong};
+    --input-bg:{input_bg}; --placeholder:{placeholder};
+    --uploader-bg:{uploader_bg};
+    --btn1:{btn1}; --btn2:{btn2};
+    --btn1-hover:{btn1_h}; --btn2-hover:{btn2_h};
+    --btn1-active:{btn1_a}; --btn2-active:{btn2_a};
+    --hero1:{hero1}; --hero2:{hero2};
+    --hero-bg:{hero_bg};
+    --success-bg:{success_bg};
+  }}
+
+  /* App surface + global text */
+  .stApp {{ background:var(--bg); color:var(--text);
+    font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Ubuntu,'Helvetica Neue',Arial; }}
+  header[data-testid="stHeader"], header[data-testid="stHeader"] * {{ background: var(--bg) !important; }}
+  .block-container {{ padding-top:3.6rem !important; padding-bottom:2rem; }}
+
+  /* Sidebar */
+  section[data-testid="stSidebar"]{{ background:var(--panel); color:var(--text); border-right:1px solid var(--border); }}
+  section[data-testid="stSidebar"] *{{ color:var(--text) !important; }}
+  .sidebar-title{{font-weight:700;font-size:1.05rem;margin-bottom:.25rem;}}
+  .sidebar-tip{{color:var(--text);opacity:.85;}}
+
+  /* Hero */
+  .hero{{ margin-top:.25rem;margin-bottom:.9rem;padding:18px 20px;
+         border:1px solid var(--border);border-radius:18px;background:var(--hero-bg); }}
+  .hero h1{{ margin:0;font-weight:800;letter-spacing:.2px;font-size:1.7rem;
+            background:linear-gradient(90deg,var(--hero1),var(--hero2));
+            -webkit-background-clip:text;background-clip:text;color:transparent; }}
+  .hero p{{ margin:.25rem 0 0 0;color:var(--sub); }}
+
+  /* Force all text to follow theme */
+  .stMarkdown, .stMarkdown * , label, [data-testid="stCheckbox"] *, [data-testid="stSelectbox"] *,
+  [data-testid="stRadio"] *, [data-testid="stSlider"] *, .stTabs [data-baseweb="tab"],
+  .stDataFrame * {{ color:var(--text) !important; }}
+
+  /* ---- Inputs ----------------------------------------------------- */
+  .stTextInput>div>div {{ background-color:var(--input-bg) !important;
+    border:1.5px solid var(--border-strong) !important; border-radius:12px !important; }}
+  .stTextInput>div>div>input {{ background-color:var(--input-bg) !important; color:var(--text) !important; }}
+  .stTextInput>div>div:focus-within {{ box-shadow:none !important; }}
+
+  /* Autofill background fix */
+  input:-webkit-autofill, input:-webkit-autofill:focus, input:-webkit-autofill:hover {{
+    -webkit-text-fill-color: var(--text) !important;
+    -webkit-box-shadow: 0 0 0 1000px var(--input-bg) inset !important;
+            box-shadow: 0 0 0 1000px var(--input-bg) inset !important;
+    caret-color: var(--text) !important; transition: background-color 9999s ease-out 0s;
+  }}
+
+  /* Show "Press Enter to apply" (covers multiple DOM variants) */
+  [data-testid="stTextInputInstructions"],
+  .stTextInput [data-testid="stTextInputInstructions"],
+  .stTextInput div[aria-live="polite"],
+  div[aria-live="polite"][data-testid="stTextInputInstructions"],
+  .stTextInput small,
+  div[aria-live="polite"] small {{
+    color: var(--placeholder, #6b7280) !important;
+    opacity: .95 !important;
+  }}
+  .stTextInput div[aria-live="polite"] {{ pointer-events: none; }}
+
+  /* Text area */
+  .stTextArea [data-baseweb="textarea"], .stTextArea > div > div {{
+    background-color:var(--input-bg) !important;
+    border:1.5px solid var(--border-strong) !important;
+    border-radius:12px !important; box-shadow:none !important; }}
+  .stTextArea textarea, .stTextArea [data-baseweb="textarea"] > textarea {{
+    background-color:var(--input-bg) !important; color:var(--text) !important; }}
+  .stTextInput input::placeholder, .stTextArea textarea::placeholder {{ color:var(--placeholder) !important; opacity:1; }}
+
+  /* ===== File uploader =====
+     Force white surface in light, theme text, and disable drag-and-drop so only Browse works.
+  */
+  /* Paint ALL layers of the dropzone */
+  .stFileUploader [data-testid="stFileUploaderDropzone"],
+  .stFileUploader [data-testid="stFileUploaderDropzone"] *:not(button):not(button *),
+  .stFileUploader [data-testid="stFileUploaderDropzone"]::before,
+  .stFileUploader [data-testid="stFileUploaderDropzone"]::after,
+  .stFileUploader [data-testid="stFileUploaderDropzone"] > div,
+  .stFileUploader [data-testid="stFileUploaderDropzone"] > div > div {{
+    background: var(--uploader-bg) !important;
+    background-color: var(--uploader-bg) !important;
+    filter: none !important;
+    color: var(--text) !important;
+  }}
+  .stFileUploader [data-testid="stFileUploaderDropzone"] svg path {{ fill: var(--text) !important; }}
+  .stFileUploader [data-testid="stFileUploaderDropzone"] {{
+    border:1.5px dashed var(--border-strong) !important;
+    border-radius:12px !important; box-shadow:none !important;
+  }}
+
+  /* Disable zone-wide click + drop, but keep the Browse button active */
+  .stFileUploader [data-testid="stFileUploaderDropzone"] > div:not(:has(button)) {{ pointer-events:none !important; }}
+  .stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"],
+  .stFileUploader [data-testid="stFileUploaderDropzone"] label,
+  .stFileUploader [data-testid="stFileUploaderDropzone"] [role="button"] {{ pointer-events:none !important; }}
+  .stFileUploader [data-testid="stFileUploaderDropzone"] button,
+  .stFileUploader [data-testid="stFileUploaderDropzone"] button * {{
+    pointer-events:auto !important; cursor:pointer !important; position:relative; z-index:2;
+  }}
+
+  /* Selectbox surface + menu */
+  .stSelectbox [data-baseweb="select"] > div {{
+    background-color:var(--input-bg) !important; border:1.5px solid var(--border-strong) !important; border-radius:12px !important; }}
+  [data-baseweb="popover"] [role="listbox"] {{ background-color:var(--input-bg) !important; color:var(--text) !important;
+    border:1px solid var(--border-strong) !important; }}
+
+  /* Buttons (Analyze) */
+  .stButton > button{{ border-radius:12px;font-weight:700;padding:.6rem 1rem;
+    background:linear-gradient(90deg,var(--btn1),var(--btn2)) !important; color:#fff;border:none;
+    box-shadow:0 8px 18px rgba(0,0,0,.25); transition:transform .08s, box-shadow .12s, background .12s; }}
+  .stButton > button:hover{{ background:linear-gradient(90deg,var(--btn1-hover),var(--btn2-hover)) !important;
+    transform:translateY(-1px); box-shadow:0 10px 24px rgba(0,0,0,.32); }}
+  .stButton > button:active{{ background:linear-gradient(90deg,var(--btn1-active),var(--btn2-active)) !important; }}
+
+  /* Tabs/tables */
+  .stTabs [aria-selected="true"]{{ color:var(--text); border-bottom:2px solid var(--btn1); }}
+  .stDataFrame{{ border:1px solid var(--border-strong); border-radius:12px; overflow:hidden; }}
+
+  /* Alerts – success tint */
+  div[role="alert"]{{ background:var(--success-bg) !important; color:var(--text) !important; }}
+
+  /* Plot text readable */
+  .js-plotly-plot .plotly .xtick text,
+  .js-plotly-plot .plotly .ytick text,
+  .js-plotly-plot .plotly .legend text,
+  .js-plotly-plot .plotly .gtitle,
+  .js-plotly-plot .plotly .sankey text,
+  .js-plotly-plot .plotly .sankey .node text{{ fill: var(--text) !important; font-weight:700 !important; }}
+
+  /* Responsive */
+  @media (max-width: 900px){{
+    .block-container {{ padding-top:2.2rem !important; }}
+    .hero h1{{ font-size:1.35rem; }}
+    .stTextArea textarea{{ min-height:120px; max-height:160px; }}
+    [data-testid="column"]{{ width:100% !important; flex:1 1 100% !important; }}
+  }}
+</style>
     """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
-
-    :root{
-      --bg:#212529;
-      --panel:#343A40;         /* sidebar background */
-      --glass:#141414;
-
-      --text:#FFFFFF;          /* global text */
-      --muted:#E5E7EB;         /* helper text */
-      --sub:#D1D5DB;           /* subheads, unselected tabs */
-
-      --border:#252525;
-      --border-strong:#3A3A3A;
-
-      --input-bg:#343A40;      /* inputs, textareas, selects, uploader */
-      --placeholder:#343A40;   /* visible on dark */
-
-      --btn1:#0f766e;
-      --btn2:#10b981;
-      --btn1-hover:#115e59; --btn2-hover:#059669;
-      --btn1-active:#0b534b; --btn2-active:#047857;
-
-      --hero1:#FFFFFF;         /* hero title gradient (subtle) */
-      --hero2:#B3B3B3;
-    }
-
-        /* App surface */
-    .stApp {
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial;
-    }
-    .block-container { padding-top: 3.6rem !important; padding-bottom: 2rem; }
-
-        /* Sidebar */
-    section[data-testid="stSidebar"]{
-      background: var(--panel);
-      color: var(--text);
-      border-right:1px solid var(--border);
-    }
-    section[data-testid="stSidebar"] * { color: var(--text) !important; }
-    .sidebar-title{font-weight:700; font-size:1.05rem; margin-bottom:.25rem;}
-    .sidebar-tip{color:var(--text); opacity:.85;}
-
-        /* Hero */
-    .hero{
-      margin-top:.25rem; margin-bottom:.9rem; padding:18px 20px;
-      border:1px solid var(--border); border-radius:18px;
-      background: linear-gradient(135deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.02) 100%);
-    }
-    .hero h1{
-      margin:0; font-weight:800; letter-spacing:.2px; font-size:1.7rem;
-      background: linear-gradient(90deg, var(--hero1), var(--hero2));
-      -webkit-background-clip:text; background-clip:text; color:transparent;
-    }
-    .hero p{ margin:.25rem 0 0 0; color:var(--sub); }
-
-        /* Ensure markdown text/headers are white */
-    .stMarkdown, .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
-      color: var(--text);
-    }
-
-        /* Inputs (text, select, textarea) */
-    label{ font-weight:600; color:var(--text); }
-    .stTextInput>div>div>input,
-
-        /* Wrapper that paints the box */
-    .stTextArea [data-baseweb="textarea"],
-    .stTextArea > div > div {                   /* covers older/newer DOMs */
-      background-color: #343A40 !important;
-      border: 1.5px solid var(--border-strong) !important;
-      border-radius: 12px !important;
-      box-shadow: none !important;
-    }
-
-        /* The actual <textarea> */
-    .stTextArea textarea,
-    .stTextArea [data-baseweb="textarea"] > textarea {
-      background-color: #343A40 !important;
-      color: var(--text) !important;
-    }
-
-        /* Optional: placeholder contrast on dark */
-    .stTextArea textarea::placeholder { color: #9AA0A6 !important; }
-
-        /* ==== FILE UPLOADER: color + click behavior ==== */
-
-    /* 1) Paint the dropzone and ALL inner layers #343A40 */
-    .stFileUploader [data-testid="stFileUploaderDropzone"],
-    .stFileUploader [data-testid="stFileUploaderDropzone"] *,
-    .stFileUploader [data-testid="stFileUploaderDropzone"]::before,
-    .stFileUploader [data-testid="stFileUploaderDropzone"]::after {
-      background: #343A40 !important;
-      background-color: #343A40 !important;
-      box-shadow: none !important;
-      color: #FFFFFF !important;                 /* keep text/icons readable */
-    }
-
-        /* Preserve the dashed border and rounding on the outer shell */
-    .stFileUploader [data-testid="stFileUploaderDropzone"] {
-      border: 1.5px dashed #3A3A3A !important;
-      border-radius: 12px !important;
-    }
-
-        /* 2) Make ONLY "Browse files" clickable
-          BaseWeb uses a full-width interactive surface (label / role=button).
-          Kill its pointer events, but re-enable for the real <button>. */
-    .stFileUploader [data-testid="stFileUploaderDropzone"] [role="button"],
-    .stFileUploader [data-testid="stFileUploaderDropzone"] label,
-    .stFileUploader [data-testid="stFileUploaderDropzone"] input[type="file"] {
-      pointer-events: none !important;           /* disable clicks on the big area */
-      cursor: none !important;
-    }
-
-        /* Re-enable just the Browse button (and its children) */
-    .stFileUploader [data-testid="stFileUploaderDropzone"] button,
-    .stFileUploader [data-testid="stFileUploaderDropzone"] button * {
-      pointer-events: auto !important;
-      cursor: pointer !important;
-      position: relative;                        /* make sure it sits above */
-      z-index: 10;
-    }
-
-        /* Optional: ensure the dropzone doesn’t look hoverable */
-    .stFileUploader [data-testid="stFileUploaderDropzone"]:hover {
-      filter: none !important;
-    }
 
 
-        /* ===== Organism SELECT ===== */
-    .stSelectbox [data-baseweb="select"] > div {          /* control surface */
-      background-color: #343A40 !important;
-      border: 1.5px solid var(--border-strong) !important;
-      border-radius: 12px !important;
-    }
-        .stSelectbox [data-baseweb="select"] [role="combobox"],
-    .stSelectbox [data-baseweb="select"] * {
-      color: var(--text) !important;
-    }
-    [data-baseweb="popover"] [role="listbox"] {           /* dropdown menu */
-      background-color: #343A40 !important;
-      color: var(--text) !important;
-      border: 1px solid var(--border-strong) !important;
-    }
+# ---- Inject CSS for the selected theme ----
+st.markdown(build_css(THEME), unsafe_allow_html=True)
 
-    .stTextArea textarea{ min-height:80px; max-height:80px; }
 
-        .stButton > button{
-      background: linear-gradient(90deg, var(--btn1), var(--btn2)) !important;
-      color:#fff; border:none; border-radius:12px;
-      box-shadow:0 8px 18px rgba(0,0,0,.25);
-      transition: transform .08s ease, box-shadow .12s ease, background .12s ease;
-    }
-    .stButton > button:hover{
-      background: linear-gradient(90deg, var(--btn1-hover), var(--btn2-hover)) !important;
-      transform: translateY(-1px);
-      box-shadow:0 10px 24px rgba(0,0,0,.32);
-    }
-    .stButton > button:active{
-      background: linear-gradient(90deg, var(--btn1-active), var(--btn2-active)) !important;
-      transform: translateY(0);
-    }
-    .stButton > button:disabled{
-      background: linear-gradient(90deg, #4b5563, #374151) !important;
-      color:#E5E7EB; box-shadow:none;
-    }
+# ---- Plotly theming helper ----
+def apply_plotly_theme(fig: go.Figure) -> go.Figure:
+    light = THEME == "light"
+    fig.update_layout(
+        paper_bgcolor="#ffffff" if light else "#111827",
+        plot_bgcolor="#ffffff" if light else "#111827",
+        font_color="#0f172a" if light else "#ffffff",
+    )
+    return fig
 
-    /* Tabs & tables */
-    .stTabs [data-baseweb="tab"] { font-weight:700; color:var(--sub); }
-    .stTabs [aria-selected="true"] { color:var(--text); border-bottom:2px solid var(--btn1); }
-    .stDataFrame{ border:1px solid var(--border-strong); border-radius:12px; overflow:hidden; }
-
-    /* Keep plot trace colors default; only make labels readable on dark */
-    .js-plotly-plot .plotly .xtick text,
-    .js-plotly-plot .plotly .ytick text,
-    .js-plotly-plot .plotly .legend text,
-    .js-plotly-plot .plotly .gtitle,
-    .js-plotly-plot .plotly .sankey text,
-    .js-plotly-plot .plotly .sankey .node text{
-      fill: #FFFFFF !important; font-weight:700 !important;
-    }
-
-    /* Drug filters header z-order */
-    .drug-filters { position: relative; z-index: 5; margin-top: 10px; }
-
-    /* Responsive tweaks */
-    @media (max-width: 900px){
-      .block-container { padding-top: 2.2rem !important; }
-      .hero h1{ font-size:1.35rem; }
-      .stTextArea textarea{ min-height:120px; max-height:160px; }
-      [data-testid="column"]{ width:100% !important; flex: 1 1 100% !important; }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
 # ---------- Top header / hero ----------
 def render_logo():
@@ -312,6 +311,7 @@ def load_genes_from_any(uploaded_file) -> list[str]:
     except Exception:
         return []
 
+
 # ----------------------------
 # Sidebar
 # ----------------------------
@@ -322,6 +322,7 @@ with st.sidebar:
     st.markdown("**Tips**")
     st.markdown("- Keep gene lists modest (≤100) to avoid API throttling.\n- Re-run if APIs rate-limit (cache = 1h).")
 
+
 # ----------------------------
 # Caching helpers – KEGG / NCBI
 # ----------------------------
@@ -330,6 +331,7 @@ def kegg_get(path: str) -> str:
     r = requests.get(f"https://rest.kegg.jp{path}", timeout=30)
     r.raise_for_status()
     return r.text
+
 
 @st.cache_data(ttl=3600)
 def ncbi_esearch_gene_ids(gene_symbol: str, organism_entrez: str) -> list[str]:
@@ -342,6 +344,7 @@ def ncbi_esearch_gene_ids(gene_symbol: str, organism_entrez: str) -> list[str]:
     handle.close()
     return record.get("IdList", [])
 
+
 @st.cache_data(ttl=3600)
 def ncbi_esummary_description(gene_id: str) -> str:
     handle = Entrez.esummary(db="gene", id=gene_id, retmode="xml")
@@ -350,6 +353,7 @@ def ncbi_esummary_description(gene_id: str) -> str:
     root = ET.fromstring(raw_xml)
     docsum = root.find(".//DocumentSummary")
     return (docsum.findtext("Description", default="") or "").strip()
+
 
 @st.cache_data(ttl=3600)
 def kegg_ncbi_to_kegg_gene_id(ncbi_gene_id: str, kegg_org_prefix: str) -> str | None:
@@ -361,6 +365,7 @@ def kegg_ncbi_to_kegg_gene_id(ncbi_gene_id: str, kegg_org_prefix: str) -> str | 
         if len(parts) == 2 and parts[0].endswith(f"{ncbi_gene_id}") and parts[1].startswith(f"{kegg_org_prefix}:"):
             return parts[1].strip()
     return None
+
 
 @st.cache_data(ttl=3600)
 def kegg_gene_pathways(kegg_gene_id: str) -> list[str]:
@@ -374,6 +379,7 @@ def kegg_gene_pathways(kegg_gene_id: str) -> list[str]:
             pids.append(parts[1])
     return pids
 
+
 @st.cache_data(ttl=3600)
 def kegg_pathway_name(pathway_id: str) -> str | None:
     pid = pathway_id.replace("path:", "")
@@ -383,10 +389,12 @@ def kegg_pathway_name(pathway_id: str) -> str | None:
             return line.replace("NAME", "").strip()
     return None
 
+
 # ----------------------------
 # OpenTargets (no API key)
 # ----------------------------
 OT_GQL = "https://api.platform.opentargets.org/api/v4/graphql"
+
 
 @st.cache_data(ttl=3600)
 def ot_query(query: str, variables: dict | None = None) -> dict:
@@ -398,6 +406,7 @@ def ot_query(query: str, variables: dict | None = None) -> dict:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
+
 
 @st.cache_data(ttl=3600)
 def ot_target_from_symbol(symbol: str, species: str = "Homo sapiens") -> dict | None:
@@ -414,6 +423,7 @@ def ot_target_from_symbol(symbol: str, species: str = "Homo sapiens") -> dict | 
         if h.get("entity") == "target":
             return {"id": h.get("id"), "approvedSymbol": h.get("name")}
     return None
+
 
 @st.cache_data(ttl=3600)
 def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
@@ -439,6 +449,7 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
             "association_score": r.get("score"),
         })
     return pd.DataFrame(out)
+
 
 @st.cache_data(ttl=3600)
 def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
@@ -473,10 +484,12 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
         })
     return pd.DataFrame(out)
 
+
 # ----------------------------
 # Core functions
 # ----------------------------
-def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str, kegg_org_prefix: str, progress=None):
+def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
+                                 kegg_org_prefix: str, progress=None):
     results = []
     pathway_to_genes = defaultdict(set)
     for i, gene in enumerate(gene_list, start=1):
@@ -506,6 +519,7 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str, keg
             results.append({"Gene": gene, "NCBI_ID": None, "Description": f"Error: {e}", "KEGG_Pathways": None})
     return pd.DataFrame(results), pathway_to_genes
 
+
 def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
     rows = []
     for pid, genes in sorted(pathway_to_genes.items(), key=lambda kv: (-len(kv[1]), kv[0])):
@@ -520,6 +534,7 @@ def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
         df = df.sort_values(["Count", "Pathway_Name"], ascending=[False, True]).reset_index(drop=True)
     return df
 
+
 # ----------------------------
 # Cohort-level OpenTargets: mapping, diseases, drugs
 # ----------------------------
@@ -532,6 +547,7 @@ def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens")
             g2t[g] = hit
         time.sleep(0.05)
     return g2t
+
 
 @st.cache_data(ttl=3600)
 def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
@@ -549,6 +565,7 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
         return pd.concat(frames, ignore_index=True)
     return pd.DataFrame(columns=["gene", "target", "disease_id", "disease_name", "association_score"])
 
+
 @st.cache_data(ttl=3600)
 def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
     frames = []
@@ -564,6 +581,7 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
     if frames:
         return pd.concat(frames, ignore_index=True)
     return pd.DataFrame(columns=["gene", "target", "drug_id", "drug_name", "phase", "moa", "diseases"])
+
 
 # ----------------------------
 # UI – Inputs
@@ -681,6 +699,7 @@ if run_btn:
                 topN = df_enrich.head(15).copy()
                 fig = px.bar(topN, x="Count", y="Pathway_Name", orientation="h", title="Top pathways by gene hits")
                 fig.update_layout(height=600)
+                fig = apply_plotly_theme(fig)
                 st.plotly_chart(fig, use_container_width=True)
             except Exception:
                 pass
@@ -724,6 +743,7 @@ if run_btn:
                 figd = px.bar(topD, x="n_genes", y="disease_name", orientation="h",
                               title="Top disease associations (by # genes)")
                 figd.update_layout(height=650)
+                figd = apply_plotly_theme(figd)
                 st.plotly_chart(figd, use_container_width=True)
             except Exception:
                 pass
@@ -829,11 +849,21 @@ if run_btn:
                         sources = [s for s, _, _ in links]
                         targets = [t for _, t, _ in links]
                         values = [v for *_, v in links]
+
+                        light = THEME == "light"
+                        node_color = "#e5e7eb" if light else "#1f2937"
+                        link_color = "rgba(37,99,235,.35)" if light else "rgba(255,255,255,.25)"
+                        border_col = "#cbd5e1" if light else "#111827"
+
                         fig_sankey = go.Figure(data=[go.Sankey(
-                            node=dict(pad=12, thickness=14, label=nodes),
-                            link=dict(source=sources, target=targets, value=values),
+                            node=dict(
+                                pad=12, thickness=14, label=nodes,
+                                color=node_color, line=dict(color=border_col, width=1)
+                            ),
+                            link=dict(source=sources, target=targets, value=values, color=link_color)
                         )])
                         fig_sankey.update_layout(title_text="Gene → Disease (→ Drug) connections", height=700)
+                        fig_sankey = apply_plotly_theme(fig_sankey)
                         st.plotly_chart(fig_sankey, use_container_width=True)
             except Exception as e:
                 st.warning(f"Sankey could not be drawn: {e}")
@@ -866,6 +896,7 @@ if run_btn:
                             textposition='top center',
                         ))
                         fig_net.update_layout(title="Gene–Pathway network (top pathways by hit count)", height=700, showlegend=False)
+                        fig_net = apply_plotly_theme(fig_net)
                         st.plotly_chart(fig_net, use_container_width=True)
             except Exception as e:
                 st.warning(f"Network could not be drawn: {e}")
