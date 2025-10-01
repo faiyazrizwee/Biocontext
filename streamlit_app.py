@@ -80,6 +80,8 @@ def get_dark_theme_css():
     padding-top: 2rem !important;
     padding-bottom: 2rem;
     max-width: 1200px;
+    padding-left: 2rem !important;
+    padding-right: 2rem !important;
   }
 
   /* Sidebar */
@@ -92,14 +94,51 @@ def get_dark_theme_css():
     color: var(--text) !important;
   }
 
-  /* Hero Section */
+  /* Hero Section - Enhanced Layout */
+  .hero-container {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    margin: 1rem 0 2rem 0;
+    padding: 0;
+  }
+
+  .logo-container {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 120px;
+    height: 120px;
+    background: linear-gradient(135deg, var(--panel) 0%, var(--surface) 100%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: 0 4px 20px var(--shadow);
+  }
+
+  .logo-container img {
+    max-width: 80px;
+    max-height: 80px;
+    object-fit: contain;
+  }
+
+  .logo-fallback {
+    font-size: 3rem;
+    color: var(--accent);
+    margin: 0;
+  }
+
   .hero {
+    flex: 1;
     background: linear-gradient(135deg, var(--panel) 0%, var(--surface) 100%);
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 2rem;
-    margin: 1rem 0 2rem 0;
     box-shadow: 0 4px 20px var(--shadow);
+    height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
 
   .hero h1 {
@@ -110,12 +149,14 @@ def get_dark_theme_css():
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+    line-height: 1.2;
   }
 
   .hero p {
     color: var(--text-muted);
     font-size: 1.1rem;
     margin: 0;
+    line-height: 1.4;
   }
 
   /* Section Titles */
@@ -346,13 +387,37 @@ def get_dark_theme_css():
 
   /* Responsive Design */
   @media (max-width: 768px) {
+    .hero-container {
+      flex-direction: column;
+      gap: 1rem;
+    }
+    
+    .logo-container {
+      width: 80px;
+      height: 80px;
+    }
+    
+    .logo-container img {
+      max-width: 60px;
+      max-height: 60px;
+    }
+    
+    .logo-fallback {
+      font-size: 2rem;
+    }
+    
+    .hero {
+      height: auto;
+      min-height: 80px;
+    }
+    
     .hero h1 {
       font-size: 2rem;
     }
     
     .block-container {
-      padding-left: 1rem;
-      padding-right: 1rem;
+      padding-left: 1rem !important;
+      padding-right: 1rem !important;
     }
     
     .section-title {
@@ -998,28 +1063,33 @@ def apply_plotly_dark_theme(fig: go.Figure) -> go.Figure:
 # UI Components
 # ----------------------------
 def render_logo():
-    """Render logo with fallback"""
+    """Render logo with fallback in a styled container"""
     logo_paths = ["logo.png", "assets/logo.png", "public/logo.png"]
+    
+    # Check if any logo exists
+    logo_found = False
     for path in logo_paths:
         if Path(path).exists():
-            st.image(path, width=80)
-            return
-    st.markdown("### 💊")
+            st.markdown(f'<div class="logo-container"><img src="data:image/png;base64,{path}" alt="Logo"></div>', unsafe_allow_html=True)
+            logo_found = True
+            break
+    
+    if not logo_found:
+        st.markdown('<div class="logo-container"><div class="logo-fallback">💊</div></div>', unsafe_allow_html=True)
 
 def render_hero():
-    """Render hero section"""
-    col1, col2 = st.columns([1, 8])
-    
-    with col1:
-        render_logo()
-        
-    with col2:
-        st.markdown("""
+    """Render enhanced hero section with improved layout"""
+    st.markdown("""
+    <div class="hero-container">
+        <div class="logo-container">
+            <div class="logo-fallback">💊</div>
+        </div>
         <div class="hero">
             <h1>Gene2Therapy</h1>
             <p>Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing</p>
         </div>
-        """, unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
 
 def render_sidebar():
     """Enhanced sidebar with tips and info"""
