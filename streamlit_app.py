@@ -1209,34 +1209,31 @@ def cleanup_session_state():
 # UI Components
 # ----------------------------
 def render_logo():
-    """Render logo with fallback - now returns HTML for flexible placement"""
-    logo_paths = ["logo.png", "assets/logo.png", "public/logo.png", "image.png"]
-    for path in logo_paths:
-        if Path(path).exists():
-            try:
-                # Read and encode the image
-                with open(path, "rb") as img_file:
-                    encoded_string = base64.b64encode(img_file.read()).decode()
-                
-                # Return HTML for the logo
-                return f'<img src="data:image/png;base64,{encoded_string}" class="logo-img" alt="Gene2Therapy Logo">'
-            except Exception as e:
-                logger.error(f"Error loading logo: {e}")
-                return '<div style="font-size: 3rem;">💊</div>'
-    
-    # Fallback emoji logo
-    return '<div style="font-size: 3rem;">💊</div>'
+    """Render custom logo from uploaded file"""
+    logo_path = Path("assets/logo.png")
+
+    if logo_path.exists():
+        st.image(str(logo_path), width=160)  # Adjust width as needed
+    else:
+        st.markdown(
+            "<h3 style='color:#00d4aa;'>💊 Gene2Therapy</h3>",
+            unsafe_allow_html=True
+        )
 
 def render_hero():
-    """Render hero section with logo and text side by side"""
-    st.markdown(f"""
-    <div class="hero">
-        <div class="hero-logo">
-            {render_logo()}
-        </div>
-        <div class="hero-content">
-            <h1>Gene2Therapy</h1>
-            <p>Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing</p>
+    """Hero section with centered logo and aligned title/subtitle"""
+    st.markdown("""
+    <div class="hero" style="display: flex; align-items: center; gap: 1.5rem;">
+        <img src="assets/logo.png" alt="Gene2Therapy Logo" width="120" style="vertical-align: middle; margin-top: -5px; filter: drop-shadow(0 0 4px rgba(0, 212, 170, 0.4));">
+        <div>
+            <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
+                       background: linear-gradient(135deg, #00d4aa, #667eea);
+                       -webkit-background-clip: text; color: transparent;">
+                Gene2Therapy
+            </h1>
+            <p style="margin-top: 6px; color: #b3b8c5; font-size: 1.05rem;">
+                Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing
+            </p>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1356,7 +1353,7 @@ def main():
     with col_type:
         show_investigational = st.checkbox(
             "🧪 Include investigational compounds",
-            value=True,
+            value=False,
             help="Include drugs in earlier clinical trial phases"
         )
     
