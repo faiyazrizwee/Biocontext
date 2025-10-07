@@ -1192,14 +1192,15 @@ def render_hero():
     """Hero section with centered logo and aligned title/subtitle"""
     st.markdown("""
     <div class="hero" style="display: flex; align-items: center; gap: 1.5rem;">
-        <img src="assets/logo.png" alt="Gene2Therapy Logo" width="120" style="vertical-align: middle; margin-top: -5px; filter: drop-shadow(0 0 4px rgba(0, 212, 170, 0.4));">
-        <div>
-            <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
+        <div style="flex-shrink: 0;">
+            <h1 style="margin: 0; font-size: 2.3rem; font-weight: 800;
                        background: linear-gradient(135deg, #00d4aa, #667eea);
                        -webkit-background-clip: text; color: transparent;">
-                Gene2Therapy
+                💊 Gene2Therapy
             </h1>
-            <p style="margin-top: 6px; color: #b3b8c5; font-size: 1.05rem;">
+        </div>
+        <div style="flex-grow: 1;">
+            <p style="margin: 0; color: #b3b8c5; font-size: 1.05rem; line-height: 1.4;">
                 Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing
             </p>
         </div>
