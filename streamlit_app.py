@@ -1223,27 +1223,28 @@ def render_logo():
 def render_hero():
     """Hero section with centered logo and aligned title/subtitle"""
     logo_path = Path(__file__).parent / "assets" / "logo.png"
-    
     if logo_path.exists():
         logo_data = logo_path.read_bytes()
         b64 = base64.b64encode(logo_data).decode()
-        st.markdown(f"""
-        <div class="hero" style="display: flex; align-items: center; gap: 1.5rem;">
-            <img src="data:image/png;base64,{b64}" alt="Gene2Therapy Logo" width="120" style="vertical-align: middle; margin-top: -5px; filter: drop-shadow(0 0 4px rgba(0, 212, 170, 0.4));">
-            <div>
-                <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
-                        background: linear-gradient(135deg, #00d4aa, #667eea);
-                        -webkit-background-clip: text; color: transparent;">
-                    Gene2Therapy
-                </h1>
-                <p style="margin-top: 6px; color: #b3b8c5; font-size: 1.05rem;">
-                    Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing
-                </p>
-            </div>
+    st.markdown(f"""
+    <div class="hero" style="display: flex; align-items: center; gap: 1.5rem;">
+        <img src="data:image/png;base64,{b64}" alt="Gene2Therapy Logo"
+             width="150" height="150"
+             style="vertical-align: middle; image-rendering: crisp-edges;
+                    image-rendering: -webkit-optimize-contrast;
+                    margin-top: -5px; filter: drop-shadow(0 0 4px rgba(0, 212, 170, 0.4));">
+        <div>
+            <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
+                       background: linear-gradient(135deg, #00d4aa, #667eea);
+                       -webkit-background-clip: text; color: transparent;">
+                Gene2Therapy
+            </h1>
+            <p style="margin-top: 6px; color: #b3b8c5; font-size: 1.05rem;">
+                Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing
+            </p>
         </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown("<h3 style='color:#00d4aa;'>💊 Gene2Therapy</h3>", unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
 
 
 
