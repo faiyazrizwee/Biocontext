@@ -1210,7 +1210,7 @@ def cleanup_session_state():
 # ----------------------------
 def render_logo():
     """Render custom logo from uploaded file"""
-    logo_path = Path("assets/logo.png")
+    logo_path = Path(".assets/logo.png")
 
     if logo_path.exists():
         st.image(str(logo_path), width=160)  # Adjust width as needed
@@ -1224,7 +1224,7 @@ def render_hero():
     """Hero section with centered logo and aligned title/subtitle"""
     st.markdown("""
     <div class="hero" style="display: flex; align-items: center; gap: 1.5rem;">
-        <img src="assets/logo.png" alt="Gene2Therapy Logo" width="120" style="vertical-align: middle; margin-top: -5px; filter: drop-shadow(0 0 4px rgba(0, 212, 170, 0.4));">
+        <img src=".assets/logo.png" alt="Gene2Therapy Logo" width="120" style="vertical-align: middle; margin-top: -5px; filter: drop-shadow(0 0 4px rgba(0, 212, 170, 0.4));">
         <div>
             <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
                        background: linear-gradient(135deg, #00d4aa, #667eea);
