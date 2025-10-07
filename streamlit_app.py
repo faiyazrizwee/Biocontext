@@ -25,6 +25,7 @@ import re
 import signal
 from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple, Any
+import base64
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -210,6 +211,21 @@ def get_dark_theme_css():
     padding: 2rem;
     margin: 1rem 0 2rem 0;
     box-shadow: 0 4px 20px var(--shadow);
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    min-height: 180px;
+  }
+
+  .hero-content {
+    flex: 1;
+  }
+
+  .hero-logo {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .hero h1 {
@@ -220,12 +236,22 @@ def get_dark_theme_css():
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+    line-height: 1.2;
   }
 
   .hero p {
     color: var(--text-muted);
     font-size: 1.1rem;
     margin: 0;
+    line-height: 1.5;
+  }
+
+  .logo-img {
+    height: 120px !important;
+    width: auto !important;
+    max-width: 120px !important;
+    object-fit: contain;
+    border-radius: 12px;
   }
 
   /* Section Titles */
@@ -456,8 +482,20 @@ def get_dark_theme_css():
 
   /* Responsive Design */
   @media (max-width: 768px) {
+    .hero {
+      flex-direction: column;
+      text-align: center;
+      gap: 1rem;
+      padding: 1.5rem;
+    }
+    
     .hero h1 {
       font-size: 2rem;
+    }
+    
+    .logo-img {
+      height: 80px !important;
+      max-width: 80px !important;
     }
     
     .block-container {
@@ -1171,28 +1209,37 @@ def cleanup_session_state():
 # UI Components
 # ----------------------------
 def render_logo():
-    """Render logo with fallback"""
-    logo_paths = ["logo.png", "assets/logo.png", "public/logo.png"]
+    """Render logo with fallback - now returns HTML for flexible placement"""
+    logo_paths = ["logo.png", "assets/logo.png", "public/logo.png", "image.png"]
     for path in logo_paths:
         if Path(path).exists():
-            st.image(path, width=80)
-            return
-    st.markdown("### 💊")
+            try:
+                # Read and encode the image
+                with open(path, "rb") as img_file:
+                    encoded_string = base64.b64encode(img_file.read()).decode()
+                
+                # Return HTML for the logo
+                return f'<img src="data:image/png;base64,{encoded_string}" class="logo-img" alt="Gene2Therapy Logo">'
+            except Exception as e:
+                logger.error(f"Error loading logo: {e}")
+                return '<div style="font-size: 3rem;">💊</div>'
+    
+    # Fallback emoji logo
+    return '<div style="font-size: 3rem;">💊</div>'
 
 def render_hero():
-    """Render hero section"""
-    col1, col2 = st.columns([1, 8])
-    
-    with col1:
-        render_logo()
-        
-    with col2:
-        st.markdown("""
-        <div class="hero">
+    """Render hero section with logo and text side by side"""
+    st.markdown(f"""
+    <div class="hero">
+        <div class="hero-logo">
+            {render_logo()}
+        </div>
+        <div class="hero-content">
             <h1>Gene2Therapy</h1>
             <p>Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing</p>
         </div>
-        """, unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
 
 def render_sidebar():
     """Enhanced sidebar with tips and info"""
