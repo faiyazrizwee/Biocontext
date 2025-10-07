@@ -230,9 +230,9 @@ def get_dark_theme_css():
   
   .hero img {
     vertical-align: middle;
-    margin-top: -10px;
+    margin-top: -5px;
+    filter: drop-shadow(0 0 6px rgba(0, 212, 170, 0.3));
   }
-
 
   /* Section Titles */
   .section-title {
@@ -1189,19 +1189,23 @@ def render_logo():
         )
 
 def render_hero():
-    """Hero section with custom logo and subtitle"""
-    col1, col2 = st.columns([1, 8])
-    
-    with col1:
-        render_logo()
-        
-    with col2:
-        st.markdown("""
-        <div class="hero">
-            <h1>Gene2Therapy</h1>
-            <p>Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing</p>
+    """Hero section with centered logo and aligned title/subtitle"""
+    st.markdown("""
+    <div class="hero" style="display: flex; align-items: center; gap: 1.5rem;">
+        <img src="assets/logo.png" alt="Gene2Therapy Logo" width="120" style="vertical-align: middle; margin-top: -5px; filter: drop-shadow(0 0 4px rgba(0, 212, 170, 0.4));">
+        <div>
+            <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
+                       background: linear-gradient(135deg, #00d4aa, #667eea);
+                       -webkit-background-clip: text; color: transparent;">
+                Gene2Therapy
+            </h1>
+            <p style="margin-top: 6px; color: #b3b8c5; font-size: 1.05rem;">
+                Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing
+            </p>
         </div>
-        """, unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
+
 
 
 def render_sidebar():
