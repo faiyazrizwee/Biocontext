@@ -56,9 +56,9 @@ Upload your **gene list file** or **paste gene names**select an organism, and do
 ## 📂 File structure
 ```
 Biocontext/
-│── main.py              # preserve code if changes occured in the streamlit_app.py by mistake.
-│── streamlit_app.py     # Streamlit web interface
-│── environment.yml      # Conda environment
+│── backup.py            # preserve code if changes occured in the streamlit_app.py by mistake.
+│── main.py              # Streamlit web interface
+│── requirements.txt     # Conda environment
 │── data/                # Example input/
 │   └── gene_list.txt
 │── README.md            # Project documentation
