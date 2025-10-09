@@ -1227,7 +1227,8 @@ def render_hero():
         <div>
             <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
                     background: linear-gradient(135deg, #00d4aa, #667eea);
-                    -webkit-background-clip: text; color: transparent;">
+                    -webkit-background-clip: text; color: transparent;
+                    text-align: center;">
                 Gene2Therapy
             </h1>
             <p style="margin-top: 6px; color: #b3b8c5; font-size: 1.05rem;">
