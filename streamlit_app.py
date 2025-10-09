@@ -1223,7 +1223,7 @@ def render_logo():
 def render_hero():
     """Hero section with centered title and subtitle (No Logo)"""
     st.markdown(f"""
-    <div class="hero" style="display: flex; flex-direction: column; align-items: center; gap: 1.5rem; padding: 2rem;">
+    <div class="hero" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 1.5rem; padding: 2rem;">
         <div>
             <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
                     background: linear-gradient(135deg, #00d4aa, #667eea);
