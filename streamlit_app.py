@@ -1243,7 +1243,7 @@ def render_sidebar():
     """Enhanced sidebar with tips and info"""
     with st.sidebar:
         st.markdown('<div class="sidebar-title">🧬 BioContext Analytics</div>', unsafe_allow_html=True)
-        st.markdown('<div class="sidebar-tip">Comprehensive gene-to-therapy pipeline with enhanced API integration and dark mode interface.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sidebar-tip">Comprehensive gene-to-therapy pipeline which takes DEGs as an input and find pathway enrichment, disease relation and suggest drugs</div>', unsafe_allow_html=True)
         
         st.markdown("---")
         
