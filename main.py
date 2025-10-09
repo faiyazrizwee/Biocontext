@@ -19,10 +19,121 @@ from pathlib import Path
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import logging
+import tempfile
+import json
+import re
+import signal
+from contextlib import contextmanager
+from typing import Dict, List, Optional, Tuple, Any
+import base64
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Configuration Management
+class Config:
+    MAX_GENES = 200
+    REQUEST_TIMEOUT = 30
+    CACHE_TTL = 3600
+    MAX_RETRIES = 3
+    REQUESTS_PER_SECOND = 2
+
+class AppConfig:
+    def __init__(self):
+        self.ncbi_email = ""
+        self.debug_mode = False
+        self.max_workers = 3
+        self.cache_ttl = 3600
+
+# Decorator for safe API calls
+def safe_api_call(func):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout in {func.__name__}")
+            return None
+        except requests.exceptions.ConnectionError:
+            logger.error(f"Connection error in {func.__name__}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error in {func.__name__}: {e}")
+            return None
+    return wrapper
+
+# Timeout context manager
+@contextmanager
+def timeout(seconds):
+    def timeout_handler(signum, frame):
+        raise TimeoutError("Operation timed out")
+    
+    # Only set timeout if we're not on Windows (signal.SIGALRM not available on Windows)
+    try:
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(seconds)
+        try:
+            yield
+        finally:
+            signal.alarm(0)
+    except AttributeError:
+        # Windows doesn't support SIGALRM, just yield without timeout
+        yield
+
+# Input validation functions
+def validate_email(email: str) -> bool:
+    """Basic email validation"""
+    if not email:
+        return False
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
+
+def sanitize_gene_symbol(gene: str) -> str:
+    """Sanitize gene symbols"""
+    # Remove potentially dangerous characters
+    sanitized = ''.join(c for c in gene.upper() if c.isalnum() or c in ['-', '_'])
+    return sanitized[:50]  # Limit length
+
+def validate_gene_list(genes: List[str]) -> Tuple[bool, str]:
+    """Validate gene list before processing"""
+    if not genes:
+        return False, "Gene list is empty"
+    
+    if len(genes) > Config.MAX_GENES:
+        return False, f"Too many genes (max {Config.MAX_GENES})"
+    
+    # Check for invalid characters
+    invalid_chars = set()
+    for gene in genes:
+        sanitized = sanitize_gene_symbol(gene)
+        if sanitized != gene:
+            invalid_chars.update(set(''.join(c for c in gene if not c.isalnum() and c not in ['-', '_'])))
+    
+    if invalid_chars:
+        return False, f"Invalid characters found: {''.join(invalid_chars)}"
+    
+    return True, "Valid"
+
+# Progress tracking utility
+def process_with_progress(items, process_func, description="Processing"):
+    """Process items with progress tracking"""
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    results = []
+    total = len(items)
+    
+    for i, item in enumerate(items):
+        status_text.text(f"{description} {i+1}/{total}")
+        progress_bar.progress((i + 1) / total)
+        
+        result = process_func(item)
+        results.append(result)
+    
+    progress_bar.empty()
+    status_text.empty()
+    
+    return results
 
 # ----------------------------
 # App Config (Dark Mode Only)
@@ -100,6 +211,21 @@ def get_dark_theme_css():
     padding: 2rem;
     margin: 1rem 0 2rem 0;
     box-shadow: 0 4px 20px var(--shadow);
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    min-height: 180px;
+  }
+
+  .hero-content {
+    flex: 1;
+  }
+
+  .hero-logo {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .hero h1 {
@@ -110,12 +236,22 @@ def get_dark_theme_css():
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+    line-height: 1.2;
   }
 
   .hero p {
     color: var(--text-muted);
     font-size: 1.1rem;
     margin: 0;
+    line-height: 1.5;
+  }
+
+  .logo-img {
+    height: 120px !important;
+    width: auto !important;
+    max-width: 120px !important;
+    object-fit: contain;
+    border-radius: 12px;
   }
 
   /* Section Titles */
@@ -346,8 +482,20 @@ def get_dark_theme_css():
 
   /* Responsive Design */
   @media (max-width: 768px) {
+    .hero {
+      flex-direction: column;
+      text-align: center;
+      gap: 1rem;
+      padding: 1.5rem;
+    }
+    
     .hero h1 {
       font-size: 2rem;
+    }
+    
+    .logo-img {
+      height: 80px !important;
+      max-width: 80px !important;
     }
     
     .block-container {
@@ -396,6 +544,7 @@ class RateLimitedSession:
         self.last_request_time = 0
         self.max_retries = max_retries
         
+    @safe_api_call
     def get(self, url, **kwargs):
         """Rate-limited GET request with retry logic"""
         for attempt in range(self.max_retries):
@@ -418,6 +567,7 @@ class RateLimitedSession:
                     raise
                 time.sleep(2 ** attempt)  # Exponential backoff
                 
+    @safe_api_call
     def post(self, url, **kwargs):
         """Rate-limited POST request with retry logic"""
         for attempt in range(self.max_retries):
@@ -463,7 +613,7 @@ def load_genes_from_any(uploaded_file) -> list[str]:
                 if v and v not in seen and len(v) > 1:  # Filter out single characters
                     seen.add(v)
                     out.append(v)
-                if len(out) >= 200:
+                if len(out) >= Config.MAX_GENES:
                     break
             return out
         except Exception as e:
@@ -518,7 +668,7 @@ def kegg_get(path: str) -> str:
     """Enhanced KEGG API call with better error handling"""
     try:
         response = kegg_session.get(f"https://rest.kegg.jp{path}")
-        return response.text
+        return response.text if response else ""
     except Exception as e:
         logger.error(f"KEGG API error for {path}: {e}")
         return ""
@@ -608,6 +758,19 @@ def kegg_pathway_name(pathway_id: str) -> str | None:
 # ----------------------------
 OT_GQL = "https://api.platform.opentargets.org/api/v4/graphql"
 
+def validate_opentargets_response(data: dict) -> bool:
+    """Validate OpenTargets API response structure"""
+    required_keys = ['data']
+    if not all(key in data for key in required_keys):
+        return False
+    
+    # Check for API errors
+    if 'errors' in data and data['errors']:
+        logger.error(f"OpenTargets API errors: {data['errors']}")
+        return False
+    
+    return True
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def ot_query(query: str, variables: dict | None = None) -> dict:
     """Enhanced OpenTargets GraphQL query"""
@@ -617,13 +780,16 @@ def ot_query(query: str, variables: dict | None = None) -> dict:
             json={"query": query, "variables": variables or {}},
             headers={"Content-Type": "application/json"}
         )
-        data = response.json()
         
-        if response.status_code >= 400 or (isinstance(data, dict) and data.get("errors") and not data.get("data")):
-            logger.error(f"OpenTargets API error: {data}")
+        if not response:
             return {}
             
-        return data if isinstance(data, dict) else {}
+        data = response.json()
+        
+        if not validate_opentargets_response(data):
+            return {}
+            
+        return data
     except Exception as e:
         logger.error(f"OpenTargets query error: {e}")
         return {}
@@ -1029,31 +1195,49 @@ def apply_plotly_dark_theme(fig: go.Figure) -> go.Figure:
     return fig
 
 # ----------------------------
+# Session State Management
+# ----------------------------
+def cleanup_session_state():
+    """Clean up large objects from session state"""
+    large_keys = ['drugs', 'diseases', 'metadata']
+    if 'analysis_results' in st.session_state:
+        for key in large_keys:
+            if key in st.session_state.analysis_results:
+                del st.session_state.analysis_results[key]
+
+# ----------------------------
 # UI Components
 # ----------------------------
 def render_logo():
-    """Render logo with fallback"""
-    logo_paths = ["logo.png", "assets/logo.png", "public/logo.png"]
-    for path in logo_paths:
-        if Path(path).exists():
-            st.image(path, width=80)
-            return
-    st.markdown("### 💊")
+    """Render custom logo from uploaded file"""
+    logo_path = Path(__file__).parent / "assets" / "logo.png"
+
+    if logo_path.exists():
+        st.image(str(logo_path), width=160)  # Adjust width as needed
+    else:
+        st.markdown(
+            "<h3 style='color:#00d4aa;'>💊 Gene2Therapy</h3>",
+            unsafe_allow_html=True
+        )
 
 def render_hero():
-    """Render hero section"""
-    col1, col2 = st.columns([1, 8])
-    
-    with col1:
-        render_logo()
-        
-    with col2:
-        st.markdown("""
-        <div class="hero">
-            <h1>Gene2Therapy</h1>
-            <p>Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing</p>
+    """Hero section with centered title and subtitle (No Logo)"""
+    st.markdown(f"""
+    <div class="hero" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 1.5rem; padding: 2rem;">
+        <div>
+            <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
+                    background: linear-gradient(135deg, #00d4aa, #667eea);
+                    -webkit-background-clip: text; color: transparent;
+                    text-align: center;">
+                Gene2Therapy
+            </h1>
+            <p style="margin-top: 6px; color: #b3b8c5; font-size: 1.05rem;">
+                Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing
+            </p>
         </div>
-        """, unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
+
 
 def render_sidebar():
     """Enhanced sidebar with tips and info"""
@@ -1099,6 +1283,10 @@ def main():
     render_hero()
     render_sidebar()
     
+    # Initialize session state
+    if 'analysis_results' not in st.session_state:
+        st.session_state.analysis_results = {}
+    
     # Input Section
     st.markdown('<div class="section-title"><span class="icon">🔧</span>Configuration & Input</div>', unsafe_allow_html=True)
     st.markdown('<div class="hint">📋 Upload your gene list or paste gene symbols to begin the analysis pipeline. All API calls are optimized with rate limiting and caching.</div>', unsafe_allow_html=True)
@@ -1110,6 +1298,11 @@ def main():
         help="Required by NCBI for API access. Your email helps them contact you if there are issues.",
         placeholder="your.email@example.com"
     )
+    
+    # Validate email
+    if email and not validate_email(email):
+        st.error("❌ Please enter a valid email address")
+        email = ""
     
     if email:
         Entrez.email = email
@@ -1152,14 +1345,14 @@ def main():
     with col_phase:
         opt_only_phase4 = st.checkbox(
             "✅ Show only approved drugs (Phase 4+)",
-            value=False,  # Changed default to show more drugs for testing
+            value=False,
             help="Filter to show only drugs that have completed clinical trials"
         )
     
     with col_type:
         show_investigational = st.checkbox(
             "🧪 Include investigational compounds",
-            value=False,  # Changed default to show more drugs for testing
+            value=False,
             help="Include drugs in earlier clinical trial phases"
         )
     
@@ -1172,10 +1365,19 @@ def main():
             .str.replace(r"[,;|\t\n ]+", "\n", regex=True)
             .str.split("\n").explode().str.strip().str.upper()
         )
-        genes_from_input = [g for g in genes_from_input.tolist() if g and len(g) > 1][:200]
+        genes_from_input = [g for g in genes_from_input.tolist() if g and len(g) > 1][:Config.MAX_GENES]
         
     elif uploaded is not None:
         genes_from_input = load_genes_from_any(uploaded)
+    
+    # Validate gene list
+    if genes_from_input:
+        is_valid, validation_msg = validate_gene_list(genes_from_input)
+        if not is_valid:
+            st.warning(f"⚠️ {validation_msg}")
+            if len(genes_from_input) > Config.MAX_GENES:
+                genes_from_input = genes_from_input[:Config.MAX_GENES]
+                st.info(f"Using first {Config.MAX_GENES} genes")
     
     # Analysis button
     st.markdown("---")
@@ -1210,10 +1412,6 @@ def main():
             "💊 Drug Suggestions", 
             "🌐 Network Visualization"
         ])
-        
-        # Initialize session state for results
-        if 'analysis_results' not in st.session_state:
-            st.session_state.analysis_results = {}
         
         # Step 1: Gene Metadata & KEGG
         with tab1:
