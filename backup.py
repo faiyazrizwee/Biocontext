@@ -5,27 +5,24 @@
 # Enhanced API calls with better error handling and rate limiting
 # -------------------------------------------------------------
 
-import time
-import requests
-import pandas as pd
 import streamlit as st
-from collections import defaultdict, Counter
-from xml.etree import ElementTree as ET
-from Bio import Entrez
-import plotly.express as px
-import plotly.graph_objects as go
-import networkx as nx
-from pathlib import Path
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
+import pandas as pd
+import numpy as np
+import requests
+import time
 import logging
-import tempfile
-import json
 import re
 import signal
 from contextlib import contextmanager
-from typing import Dict, List, Optional, Tuple, Any
-import base64
+from typing import List, Tuple, Dict
+from collections import defaultdict
+from pathlib import Path
+import xml.etree.ElementTree as ET
+from Bio import Entrez
+import plotly.graph_objects as go
+import plotly.express as px
+import networkx as nx
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -312,7 +309,7 @@ def get_dark_theme_css():
   /* File Uploader */
   .stFileUploader [data-testid="stFileUploaderDropzone"] {
     background: var(--surface) !important;
-    border: 2px dashed var(--border) !important;
+    border: 2px solid var(--border) !important;
     border-radius: 12px !important;
     padding: 2rem !important;
     transition: all 0.2s ease;
@@ -1243,7 +1240,7 @@ def render_sidebar():
     """Enhanced sidebar with tips and info"""
     with st.sidebar:
         st.markdown('<div class="sidebar-title">🧬 BioContext Analytics</div>', unsafe_allow_html=True)
-        st.markdown('<div class="sidebar-tip">Comprehensive gene-to-therapy pipeline which takes DEGs as an input and find pathway enrichment, disease relation and suggest drugs.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sidebar-tip">Comprehensive gene-to-therapy pipeline which takes DEGs as an input and find pathway enrichment, disease relation and suggest drugs</div>', unsafe_allow_html=True)
         
         st.markdown("---")
         
