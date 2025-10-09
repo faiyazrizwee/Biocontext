@@ -1,4 +1,4 @@
-# streamlit_app.py
+# main.py
 # -------------------------------------------------------------
 # Gene2Therapy – Dark Mode Optimized
 # Gene list → KEGG enrichment → Disease links → Drug repurposing
