@@ -661,13 +661,13 @@ def load_genes_from_any(uploaded_file) -> list[str]:
         return []
 
 # ----------------------------
-# Enhanced Caching Functions
+# Enhanced Caching Functions - FIXED AUTO-RELOAD ISSUE
 # ----------------------------
 @st.cache_data(ttl=3600, show_spinner=False)
-def kegg_get(path: str) -> str:
+def kegg_get(_session, path: str) -> str:
     """Enhanced KEGG API call with better error handling"""
     try:
-        response = kegg_session.get(f"https://rest.kegg.jp{path}")
+        response = _session.get(f"https://rest.kegg.jp{path}")
         return response.text if response else ""
     except Exception as e:
         logger.error(f"KEGG API error for {path}: {e}")
@@ -705,10 +705,10 @@ def ncbi_esummary_description(gene_id: str) -> str:
         return "Description unavailable"
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def kegg_ncbi_to_kegg_gene_id(ncbi_gene_id: str, kegg_org_prefix: str) -> str | None:
+def kegg_ncbi_to_kegg_gene_id(_session, ncbi_gene_id: str, kegg_org_prefix: str) -> str | None:
     """Enhanced NCBI to KEGG ID conversion"""
     try:
-        txt = kegg_get(f"/conv/genes/ncbi-geneid:{ncbi_gene_id}")
+        txt = kegg_get(_session, f"/conv/genes/ncbi-geneid:{ncbi_gene_id}")
         if not txt.strip():
             return None
             
@@ -722,10 +722,10 @@ def kegg_ncbi_to_kegg_gene_id(ncbi_gene_id: str, kegg_org_prefix: str) -> str | 
         return None
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def kegg_gene_pathways(kegg_gene_id: str) -> list[str]:
+def kegg_gene_pathways(_session, kegg_gene_id: str) -> list[str]:
     """Enhanced KEGG pathway fetch"""
     try:
-        txt = kegg_get(f"/link/pathway/{kegg_gene_id}")
+        txt = kegg_get(_session, f"/link/pathway/{kegg_gene_id}")
         if not txt.strip():
             return []
             
@@ -740,11 +740,11 @@ def kegg_gene_pathways(kegg_gene_id: str) -> list[str]:
         return []
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def kegg_pathway_name(pathway_id: str) -> str | None:
+def kegg_pathway_name(_session, pathway_id: str) -> str | None:
     """Enhanced KEGG pathway name fetch"""
     try:
         pid = pathway_id.replace("path:", "")
-        txt = kegg_get(f"/get/{pid}")
+        txt = kegg_get(_session, f"/get/{pid}")
         for line in txt.split("\n"):
             if line.startswith("NAME"):
                 return line.replace("NAME", "").strip()
@@ -772,10 +772,10 @@ def validate_opentargets_response(data: dict) -> bool:
     return True
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def ot_query(query: str, variables: dict | None = None) -> dict:
+def ot_query(_session, query: str, variables: dict | None = None) -> dict:
     """Enhanced OpenTargets GraphQL query"""
     try:
-        response = ot_session.post(
+        response = _session.post(
             OT_GQL, 
             json={"query": query, "variables": variables or {}},
             headers={"Content-Type": "application/json"}
@@ -795,7 +795,7 @@ def ot_query(query: str, variables: dict | None = None) -> dict:
         return {}
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def ot_target_from_symbol(symbol: str, species: str = "Homo sapiens") -> dict | None:
+def ot_target_from_symbol(_session, symbol: str, species: str = "Homo sapiens") -> dict | None:
     """Enhanced target lookup with better matching"""
     query = """
     query FindTarget($q: String!) {
@@ -816,7 +816,7 @@ def ot_target_from_symbol(symbol: str, species: str = "Homo sapiens") -> dict | 
     """
     
     try:
-        data = ot_query(query, {"q": symbol})
+        data = ot_query(_session, query, {"q": symbol})
         hits = (((data or {}).get("data", {})).get("search", {}) or {}).get("hits", [])
         
         # Prioritize exact matches
@@ -842,7 +842,7 @@ def ot_target_from_symbol(symbol: str, species: str = "Homo sapiens") -> dict | 
         return None
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
+def ot_diseases_for_target(_session, ensembl_id: str, size: int = 25) -> pd.DataFrame:
     """Enhanced disease associations fetch"""
     query = """
     query Associations($id: String!, $size: Int!) {
@@ -867,7 +867,7 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
     """
     
     try:
-        data = ot_query(query, {"id": ensembl_id, "size": size})
+        data = ot_query(_session, query, {"id": ensembl_id, "size": size})
         rows = (((data or {}).get("data", {})).get("target", {}) or {}).get("associatedDiseases", {}).get("rows", [])
         
         out = []
@@ -889,7 +889,7 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
         return pd.DataFrame(columns=["target", "disease_id", "disease_name", "association_score", "therapeutic_areas"])
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
+def ot_drugs_for_target(_session, ensembl_id: str, size: int = 50) -> pd.DataFrame:
     """FIXED: Enhanced drug suggestions fetch with improved error handling and correct query"""
     query = """
     query KnownDrugs($id: String!, $size: Int!) {
@@ -920,7 +920,7 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
     """
     
     try:
-        data = ot_query(query, {"id": ensembl_id, "size": size})
+        data = ot_query(_session, query, {"id": ensembl_id, "size": size})
         
         # Debug: Log the response structure
         logger.info(f"OpenTargets response for {ensembl_id}: {data.keys() if data else 'No data'}")
@@ -1015,7 +1015,7 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
             description = ncbi_esummary_description(gene_id)
             
             # KEGG conversion
-            kegg_id = kegg_ncbi_to_kegg_gene_id(gene_id, kegg_org_prefix)
+            kegg_id = kegg_ncbi_to_kegg_gene_id(kegg_session, gene_id, kegg_org_prefix)
             if not kegg_id:
                 results.append({
                     "Gene": gene, 
@@ -1027,11 +1027,11 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
                 continue
                 
             # KEGG pathways
-            pids = kegg_gene_pathways(kegg_id)
+            pids = kegg_gene_pathways(kegg_session, kegg_id)
             pathway_pairs = []
             
             for pid in pids:
-                name = kegg_pathway_name(pid) or "Unknown"
+                name = kegg_pathway_name(kegg_session, pid) or "Unknown"
                 pathway_pairs.append(f"{pid.replace('path:', '')} - {name}")
                 pathway_to_genes[pid].add(gene)
                 
@@ -1067,7 +1067,7 @@ def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
         
     rows = []
     for pid, genes in pathway_to_genes.items():
-        pathway_name = kegg_pathway_name(pid) or "Unknown pathway"
+        pathway_name = kegg_pathway_name(kegg_session, pid) or "Unknown pathway"
         gene_list = sorted(list(genes))
         
         rows.append({
@@ -1089,7 +1089,7 @@ def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens")
     g2t = {}
     for g in genes:
         try:
-            hit = ot_target_from_symbol(g, species)
+            hit = ot_target_from_symbol(ot_session, g, species)
             if hit:
                 g2t[g] = hit
                 logger.info(f"Mapped {g} to {hit.get('id')}")
@@ -1110,7 +1110,7 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
             continue
             
         try:
-            df = ot_diseases_for_target(tid)
+            df = ot_diseases_for_target(ot_session, tid)
             if not df.empty:
                 df.insert(0, "gene", g)
                 df.insert(1, "gene_symbol", tgt.get("approvedSymbol", g))
@@ -1138,7 +1138,7 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
             continue
             
         try:
-            df = ot_drugs_for_target(tid)
+            df = ot_drugs_for_target(ot_session, tid)
             if not df.empty:
                 df.insert(0, "gene", g)
                 df.insert(1, "gene_symbol", tgt.get("approvedSymbol", g))
@@ -1225,27 +1225,35 @@ def render_hero():
     logo_path = Path(__file__).parent / "assets" / "logo.png"
     
     if logo_path.exists():
-        logo_data = logo_path.read_bytes()
-        b64 = base64.b64encode(logo_data).decode()
+        # Use st.image with proper sizing for better quality
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.image(str(logo_path), width=120)
         st.markdown(f"""
-        <div class="hero" style="display: flex; align-items: center; gap: 1.5rem;">
-            <img src="data:image/png;base64,{b64}" alt="Gene2Therapy Logo" width="120" style="vertical-align: middle; margin-top: -5px; filter: drop-shadow(0 0 4px rgba(0, 212, 170, 0.4));">
-            <div>
-                <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
-                        background: linear-gradient(135deg, #00d4aa, #667eea);
-                        -webkit-background-clip: text; color: transparent;">
-                    Gene2Therapy
-                </h1>
-                <p style="margin-top: 6px; color: #b3b8c5; font-size: 1.05rem;">
-                    Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing
-                </p>
-            </div>
+        <div style="text-align: center; margin-top: -120px; padding-top: 120px;">
+            <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
+                    background: linear-gradient(135deg, #00d4aa, #667eea);
+                    -webkit-background-clip: text; color: transparent;">
+                Gene2Therapy
+            </h1>
+            <p style="margin-top: 6px; color: #b3b8c5; font-size: 1.05rem;">
+                Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing
+            </p>
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.markdown("<h3 style='color:#00d4aa;'>💊 Gene2Therapy</h3>", unsafe_allow_html=True)
-
-
+        st.markdown("""
+        <div style="text-align: center;">
+            <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
+                    background: linear-gradient(135deg, #00d4aa, #667eea);
+                    -webkit-background-clip: text; color: transparent;">
+                💊 Gene2Therapy
+            </h1>
+            <p style="margin-top: 6px; color: #b3b8c5; font-size: 1.05rem;">
+                Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
 def render_sidebar():
     """Enhanced sidebar with tips and info"""
@@ -1285,7 +1293,7 @@ def render_sidebar():
             """)
 
 # ----------------------------
-# Main Application
+# Main Application - FIXED AUTO-RELOAD
 # ----------------------------
 def main():
     render_hero()
@@ -1408,7 +1416,7 @@ def main():
         else:
             st.info("📝 Please upload a file or paste gene symbols")
     
-    # Analysis tabs
+    # Analysis tabs - FIXED: Only run analysis when button is clicked
     if run_analysis:
         st.markdown("---")
         
@@ -1928,7 +1936,7 @@ def main():
                             G = nx.Graph()
                             
                             for pathway_id, genes in top_pathways:
-                                pathway_name = kegg_pathway_name(pathway_id) or pathway_id.replace("path:", "")
+                                pathway_name = kegg_pathway_name(kegg_session, pathway_id) or pathway_id.replace("path:", "")
                                 pathway_name = pathway_name[:30] + "..." if len(pathway_name) > 30 else pathway_name
                                 
                                 for gene in genes:
