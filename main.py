@@ -139,6 +139,7 @@ def get_dark_theme_css():
     align-items: center !important;
     justify-content: center !important;
     text-align: center !important;
+    margin-bottom: 1.5rem !important;
   }
 
   .mode-button:hover {
@@ -647,42 +648,77 @@ def run_degs_analysis():
     **⚡ Now with optimized performance for faster analysis!**
     """)
     
-    # Sidebar for file upload and parameters
-    st.sidebar.header("Upload Data")
+     # File format instructions in sidebar (without expander)
+    st.sidebar.header("📁 Expected File Format")
+    st.sidebar.markdown("""
+    - **File type**: CSV or TSV
+    - **Rows**: Genes (with gene names/IDs in first column)
+    - **Columns**: Samples
+    - **First row**: Column headers (sample names)
+    - **First column**: Gene identifiers
     
-    uploaded_file = st.sidebar.file_uploader(
+    **Example format:**
+    ```
+    Gene,Sample1,Sample2,Sample3,Sample4
+    GeneA,15,20,8,25
+    GeneB,100,85,120,95
+    GeneC,5,3,7,4
+    ```
+    """)
+    
+    # Performance features in sidebar (without expander)
+    st.sidebar.header("⚡ Performance Features")
+    st.sidebar.markdown("""
+    - **Batch processing** for faster t-test calculations
+    - **Vectorized operations** for fold change calculations
+    - **Optional caching** for repeated analyses
+    - **Progress tracking** during analysis
+    """)
+    
+    # Main section - file upload, analysis parameters, and performance settings
+    st.header("Upload Data")
+    
+    uploaded_file = st.file_uploader(
         "Choose a count matrix file",
         type=['csv', 'tsv', 'txt'],
         help="Upload a CSV or TSV file with genes as rows and samples as columns"
     )
     
-    st.sidebar.header("Analysis Parameters")
-    logFC_threshold = st.sidebar.number_input(
-        "logFC Threshold",
-        min_value=0.0,
-        max_value=10.0,
-        value=2.0,
-        step=0.1,
-        help="Minimum absolute log2 fold change for significance"
-    )
+    # Analysis parameters in main section
+    st.header("Analysis Parameters")
     
-    p_value_threshold = st.sidebar.number_input(
-        "P-value Threshold",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.05,
-        step=0.01,
-        help="Maximum p-value for significance"
-    )
+    col1, col2 = st.columns(2)
     
-    # Performance settings
-    st.sidebar.header("Performance Settings")
-    use_caching = st.sidebar.checkbox(
+    with col1:
+        logFC_threshold = st.number_input(
+            "logFC Threshold",
+            min_value=0.0,
+            max_value=10.0,
+            value=2.0,
+            step=0.1,
+            help="Minimum absolute log2 fold change for significance"
+        )
+    
+    with col2:
+        p_value_threshold = st.number_input(
+            "P-value Threshold",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.05,
+            step=0.01,
+            help="Maximum p-value for significance"
+        )
+    
+    # Performance settings in main section
+    st.header("Performance Settings")
+    
+    use_caching = st.checkbox(
         "Enable result caching", 
         value=True,
         help="Cache results for faster re-analysis with same parameters"
     )
     
+    # Rest of the code remains the same...
     if uploaded_file is not None:
         try:
             # Determine file format and read data
@@ -901,31 +937,8 @@ def run_degs_analysis():
             st.info("Please ensure your file is properly formatted with genes as rows and samples as columns.")
     
     else:
-        # Display instructions when no file is uploaded
+        # Display simple instructions when no file is uploaded
         st.info("👆 Please upload a count matrix file to begin analysis.")
-        
-        st.markdown("""
-        ### Expected File Format:
-        - **File type**: CSV or TSV
-        - **Rows**: Genes (with gene names/IDs in first column)
-        - **Columns**: Samples
-        - **First row**: Column headers (sample names)
-        - **First column**: Gene identifiers
-        
-        ### Example format:
-        ```
-        Gene,Sample1,Sample2,Sample3,Sample4
-        GeneA,15,20,8,25
-        GeneB,100,85,120,95
-        GeneC,5,3,7,4
-        ```
-        
-        ### ⚡ Performance Features:
-        - **Batch processing** for faster t-test calculations
-        - **Vectorized operations** for fold change calculations
-        - **Optional caching** for repeated analyses
-        - **Progress tracking** during analysis
-        """)
 
 # =============================================================================
 # PATHWAY ANALYSIS FUNCTIONS (Second Pipeline)
@@ -1622,22 +1635,22 @@ def run_pathway_analysis(genes_from_input=None):
     if 'analysis_results' not in st.session_state:
         st.session_state.analysis_results = {}
     
-    # Hero section
-    st.markdown(f"""
-    <div class="hero" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 1.5rem; padding: 2rem;">
-        <div>
-            <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
-                    background: linear-gradient(135deg, #00d4aa, #667eea);
-                    -webkit-background-clip: text; color: transparent;
-                    text-align: center;">
-                Gene2Therapy
-            </h1>
-            <p style="margin-top: 6px; color: #b3b8c5; font-size: 1.05rem;">
-                Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing
-            </p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # # Hero section
+    # st.markdown(f"""
+    # <div class="hero" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 1.5rem; padding: 2rem;">
+    #     <div>
+    #         <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
+    #                 background: linear-gradient(135deg, #00d4aa, #667eea);
+    #                 -webkit-background-clip: text; color: transparent;
+    #                 text-align: center;">
+    #             Gene2Therapy
+    #         </h1>
+    #         <p style="margin-top: 6px; color: #b3b8c5; font-size: 1.05rem;">
+    #             Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing
+    #         </p>
+    #     </div>
+    # </div>
+    # """, unsafe_allow_html=True)
     
     # Enhanced sidebar
     with st.sidebar:
