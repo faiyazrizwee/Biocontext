@@ -2473,7 +2473,7 @@ def main():
             st.session_state.degs_completed = False
             st.rerun()
     
-    # Display appropriate pipeline based on selection - REMOVED the 'both' option logic
+    # Display appropriate pipeline based on selection
     if st.session_state.analysis_mode == 'degs_only':
         st.markdown("---")
         st.info("🔬 Running Differential Expression Analysis Only")
