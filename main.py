@@ -2437,8 +2437,9 @@ def main():
     # Initialize session state
     initialize_session_state()
     
-    # Main title and mode selection
-    st.title("🧬 GeneXplorer")
+       
+    # Main title and mode selection - CENTERED TITLE
+    st.markdown("<h1 style='text-align: center;'>🧬 GeneXplorer</h1>", unsafe_allow_html=True)
     
     st.markdown("""
     This integrated pipeline provides a complete workflow from differential expression analysis 
