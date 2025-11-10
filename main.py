@@ -2438,7 +2438,7 @@ def main():
     initialize_session_state()
     
     # Main title and mode selection
-    st.title("🧬 Integrated Gene Analysis Pipeline")
+    st.title("🧬 GeneXplorer")
     
     st.markdown("""
     This integrated pipeline provides a complete workflow from differential expression analysis 
