@@ -645,7 +645,6 @@ def run_degs_analysis():
     This tool performs differential expression analysis between two sample groups using RNA-seq count data.
     Upload your count matrix and configure the analysis parameters below.
     
-    **⚡ Now with optimized performance for faster analysis!**
     """)
     
      # File format instructions in sidebar (without expander)
