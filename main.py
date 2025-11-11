@@ -2455,7 +2455,7 @@ def main():
         button_class = "mode-button active" if st.session_state.analysis_mode == 'degs_only' else "mode-button"
         st.markdown(f'<div class="{button_class}">🧬<br><strong>DEGs Analysis</strong><br><small>Identify differentially expressed genes from RNA-seq data</small></div>', 
                    unsafe_allow_html=True)
-        if st.button("Select DEGs Analysis Only", key="degs_btn", use_container_width=True):
+        if st.button("Select DEGs Analysis", key="degs_btn", use_container_width=True):
             st.session_state.analysis_mode = 'degs_only'
             st.session_state.current_pipeline_step = 'degs'
             st.session_state.show_pathway_analysis = False
@@ -2466,7 +2466,7 @@ def main():
         button_class = "mode-button active" if st.session_state.analysis_mode == 'pathway_only' else "mode-button"
         st.markdown(f'<div class="{button_class}">💊<br><strong>Pathway & Drug Analysis</strong><br><small>Enrichment, disease links, and drug discovery</small></div>', 
                    unsafe_allow_html=True)
-        if st.button("Select Pathway & Drug Analysis Only", key="pathway_btn", use_container_width=True):
+        if st.button("Select Pathway & Drug Analysis", key="pathway_btn", use_container_width=True):
             st.session_state.analysis_mode = 'pathway_only'
             st.session_state.current_pipeline_step = 'pathway'
             st.session_state.show_pathway_analysis = True
