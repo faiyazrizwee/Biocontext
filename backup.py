@@ -1,5 +1,4 @@
 # backup.py
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -647,7 +646,6 @@ def run_degs_analysis():
     This tool performs differential expression analysis between two sample groups using RNA-seq count data.
     Upload your count matrix and configure the analysis parameters below.
     
-    **⚡ Now with optimized performance for faster analysis!**
     """)
     
      # File format instructions in sidebar (without expander)
@@ -681,8 +679,8 @@ def run_degs_analysis():
     st.header("Upload Data")
     
     uploaded_file = st.file_uploader(
-        "Choose a count matrix file",
-        type=['csv', 'tsv', 'txt'],
+        "📁 Choose a count matrix file",
+        type=['csv', 'tsv'],
         help="Upload a CSV or TSV file with genes as rows and samples as columns"
     )
     
@@ -1697,9 +1695,9 @@ def run_pathway_analysis(genes_from_input=None):
         return
     
     # Input Section
-    st.markdown('<div class="section-title"><span class="icon">🔧</span>Configuration & Input</div>', unsafe_allow_html=True)
-    st.markdown('<div class="hint">📋 Upload your gene list or paste gene symbols to begin the analysis pipeline. All API calls are optimized with rate limiting and caching.</div>', unsafe_allow_html=True)
-    
+    st.title("💊 Pathway & Drug Analyzer")
+    st.markdown("""This tool performs pathway enrichment analysis and drug discovery based on the give DEGs input.""")
+
     # Email input for NCBI
     email = st.text_input(
         "📧 NCBI Entrez Email (Required)", 
@@ -1747,7 +1745,7 @@ def run_pathway_analysis(genes_from_input=None):
     
     # Drug filtering options
     st.markdown("---")
-    st.markdown("**💊 Drug Analysis Filters**")
+    st.header("**Drug Analysis Filters**")
     
     col_phase, col_type = st.columns([1, 1])
     
@@ -2441,7 +2439,7 @@ def main():
     
        
     # Main title and mode selection - CENTERED TITLE
-    st.markdown("<h1 style='text-align: center;'>🧬 GeneXplorer</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center;'>GeneXplorer</h1>", unsafe_allow_html=True)
     
     st.markdown("""
     This integrated pipeline provides a complete workflow from differential expression analysis 
@@ -2458,7 +2456,7 @@ def main():
         button_class = "mode-button active" if st.session_state.analysis_mode == 'degs_only' else "mode-button"
         st.markdown(f'<div class="{button_class}">🧬<br><strong>DEGs Analysis</strong><br><small>Identify differentially expressed genes from RNA-seq data</small></div>', 
                    unsafe_allow_html=True)
-        if st.button("Select DEGs Analysis Only", key="degs_btn", use_container_width=True):
+        if st.button("Select DEGs Analysis", key="degs_btn", use_container_width=True):
             st.session_state.analysis_mode = 'degs_only'
             st.session_state.current_pipeline_step = 'degs'
             st.session_state.show_pathway_analysis = False
@@ -2469,7 +2467,7 @@ def main():
         button_class = "mode-button active" if st.session_state.analysis_mode == 'pathway_only' else "mode-button"
         st.markdown(f'<div class="{button_class}">💊<br><strong>Pathway & Drug Analysis</strong><br><small>Enrichment, disease links, and drug discovery</small></div>', 
                    unsafe_allow_html=True)
-        if st.button("Select Pathway & Drug Analysis Only", key="pathway_btn", use_container_width=True):
+        if st.button("Select Pathway & Drug Analysis", key="pathway_btn", use_container_width=True):
             st.session_state.analysis_mode = 'pathway_only'
             st.session_state.current_pipeline_step = 'pathway'
             st.session_state.show_pathway_analysis = True
@@ -2479,12 +2477,12 @@ def main():
     # Display appropriate pipeline based on selection
     if st.session_state.analysis_mode == 'degs_only':
         st.markdown("---")
-        st.info("🔬 Running Differential Expression Analysis Only")
+        st.info("🔬 Running Differential Expression Analysis")
         run_degs_analysis()
     
     elif st.session_state.analysis_mode == 'pathway_only':
         st.markdown("---")
-        st.info("💊 Running Pathway Enrichment & Drug Discovery Only")
+        st.info("🔬 Running Pathway Enrichment & Drug Discovery")
         run_pathway_analysis()
     
     else:
