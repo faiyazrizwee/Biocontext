@@ -679,7 +679,7 @@ def run_degs_analysis():
     
     uploaded_file = st.file_uploader(
         "Choose a count matrix file",
-        type=['csv', 'tsv', 'txt'],
+        type=['csv', 'tsv'],
         help="Upload a CSV or TSV file with genes as rows and samples as columns"
     )
     
