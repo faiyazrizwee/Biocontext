@@ -629,12 +629,66 @@ def check_data_quality(count_matrix, group1_samples, group2_samples):
     
     return quality_issues
 
+# =============================================================================
+# NORMALIZATION FUNCTIONS
+# =============================================================================
+
+def normalize_to_cpm(count_matrix):
+    """
+    Normalize raw counts to CPM (Counts Per Million)
+    Simple library size normalization
+    """
+    library_sizes = count_matrix.sum(axis=0)
+    cpm_matrix = count_matrix.div(library_sizes, axis=1) * 1e6
+    return cpm_matrix
+
+def calculate_differential_expression_normalized(normalized_matrix, sample_group1, sample_group2):
+    """
+    Calculate differential expression for normalized data
+    """
+    # Apply log2 transformation for normalized data
+    log_data = np.log2(normalized_matrix + 0.1)  # Small pseudocount
+    
+    # Calculate means
+    mean_group1 = log_data[sample_group1].mean(axis=1)
+    mean_group2 = log_data[sample_group2].mean(axis=1)
+    
+    # Calculate logFC
+    logFC = mean_group2 - mean_group1
+    
+    # Calculate p-values
+    p_values = []
+    for idx in range(len(log_data)):
+        g1_data = log_data[sample_group1].iloc[idx].values
+        g2_data = log_data[sample_group2].iloc[idx].values
+        
+        try:
+            t_stat, p_val = ttest_ind(g1_data, g2_data, equal_var=False, nan_policy='omit')
+            p_values.append(p_val if not np.isnan(p_val) else 1.0)
+        except:
+            p_values.append(1.0)
+    
+    # Create results DataFrame
+    results = pd.DataFrame({
+        'Gene': normalized_matrix.index,
+        'logFC': logFC,
+        'p_value': p_values,
+        'mean_group1': np.exp2(mean_group1) - 0.1,  # Convert back to linear scale for display
+        'mean_group2': np.exp2(mean_group2) - 0.1
+    })
+    
+    return results
+
 @st.cache_data
-def cached_calculate_de(_count_matrix, sample_group1, sample_group2, logFC_threshold, p_value_threshold):
+def cached_calculate_de(_count_matrix, sample_group1, sample_group2, logFC_threshold, p_value_threshold, data_is_normalized):
     """
     Cached version of differential expression analysis
     """
-    results = calculate_differential_expression_fast(_count_matrix, sample_group1, sample_group2)
+    if data_is_normalized:
+        results = calculate_differential_expression_normalized(_count_matrix, sample_group1, sample_group2)
+    else:
+        results = calculate_differential_expression_fast(_count_matrix, sample_group1, sample_group2)
+    
     upregulated, downregulated = filter_and_sort_degs(results, logFC_threshold, p_value_threshold)
     return results, upregulated, downregulated
 
@@ -644,10 +698,9 @@ def run_degs_analysis():
     st.markdown("""
     This tool performs differential expression analysis between two sample groups using RNA-seq count data.
     Upload your count matrix and configure the analysis parameters below.
-    
     """)
     
-     # File format instructions in sidebar (without expander)
+    # File format instructions in sidebar (without expander)
     st.sidebar.header("📁 Expected File Format")
     st.sidebar.markdown("""
     - **File type**: CSV or TSV
@@ -683,6 +736,21 @@ def run_degs_analysis():
         help="Upload a CSV or TSV file with genes as rows and samples as columns"
     )
     
+    # Data type selection - Simplified to just a checkbox
+    st.header("Data Configuration")
+    
+    data_is_normalized = st.checkbox(
+        "Data is already normalized",
+        value=False,
+        help="Check if your data is already normalized (e.g., FPKM, TPM, or other normalized values). If unchecked, raw counts will be normalized using CPM."
+    )
+    
+    # Show info based on selection
+    if data_is_normalized:
+        st.info("🔬 Using provided normalized data as-is. Statistical tests will be performed on log-transformed values.")
+    else:
+        st.info("🔬 Raw counts detected. Data will be normalized using CPM (Counts Per Million) before analysis.")
+    
     # Analysis parameters in main section
     st.header("Analysis Parameters")
     
@@ -717,7 +785,6 @@ def run_degs_analysis():
         help="Cache results for faster re-analysis with same parameters"
     )
     
-    # Rest of the code remains the same...
     if uploaded_file is not None:
         try:
             # Determine file format and read data
@@ -733,6 +800,18 @@ def run_degs_analysis():
                 st.dataframe(count_matrix.head(), use_container_width=True)
                 st.write(f"**Shape:** {count_matrix.shape[0]} rows × {count_matrix.shape[1]} columns")
             
+            # Apply normalization if data is not normalized
+            analysis_matrix = count_matrix.copy()
+            if not data_is_normalized:
+                st.info("🔄 Applying CPM normalization to raw counts...")
+                analysis_matrix = normalize_to_cpm(analysis_matrix)
+                st.success("✅ CPM normalization completed")
+                
+                # Show normalized data preview
+                with st.expander("Normalized Data Preview"):
+                    st.dataframe(analysis_matrix.head().round(4), use_container_width=True)
+                    st.write("**Note:** Data normalized to Counts Per Million (CPM)")
+            
             # Sample selection
             st.header("Sample Group Configuration")
             
@@ -743,7 +822,7 @@ def run_degs_analysis():
                 group1_name = st.text_input("Group 1 name", value="Control", key="group1_name")
                 group1_samples = st.multiselect(
                     f"Select samples for {group1_name}",
-                    options=count_matrix.columns.tolist(),
+                    options=analysis_matrix.columns.tolist(),
                     key="group1_samples"
                 )
                 st.write(f"Selected {len(group1_samples)} samples")
@@ -753,7 +832,7 @@ def run_degs_analysis():
                 group2_name = st.text_input("Group 2 name", value="Treatment", key="group2_name")
                 group2_samples = st.multiselect(
                     f"Select samples for {group2_name}",
-                    options=[col for col in count_matrix.columns if col not in group1_samples],
+                    options=[col for col in analysis_matrix.columns if col not in group1_samples],
                     key="group2_samples"
                 )
                 st.write(f"Selected {len(group2_samples)} samples")
@@ -770,7 +849,7 @@ def run_degs_analysis():
             
             # Data quality check
             st.header("Data Quality Check")
-            quality_issues = check_data_quality(count_matrix, group1_samples, group2_samples)
+            quality_issues = check_data_quality(analysis_matrix, group1_samples, group2_samples)
             
             if quality_issues:
                 for issue in quality_issues:
@@ -779,7 +858,7 @@ def run_degs_analysis():
                 st.success("No major data quality issues detected.")
             
             # Performance estimation
-            total_genes = count_matrix.shape[0]
+            total_genes = analysis_matrix.shape[0]
             estimated_time = max(5, total_genes // 500)  # Rough estimate: ~500 genes per second
             st.info(f"⏱️ Estimated analysis time: {estimated_time} seconds for {total_genes:,} genes")
             
@@ -802,10 +881,13 @@ def run_degs_analysis():
                     # Perform differential expression analysis
                     if use_caching:
                         results, upregulated, downregulated = cached_calculate_de(
-                            count_matrix, group1_samples, group2_samples, logFC_threshold, p_value_threshold
+                            analysis_matrix, group1_samples, group2_samples, logFC_threshold, p_value_threshold, data_is_normalized
                         )
                     else:
-                        results = calculate_differential_expression_fast(count_matrix, group1_samples, group2_samples)
+                        if data_is_normalized:
+                            results = calculate_differential_expression_normalized(analysis_matrix, group1_samples, group2_samples)
+                        else:
+                            results = calculate_differential_expression_fast(analysis_matrix, group1_samples, group2_samples)
                         status_text.text("Filtering significant genes...")
                         progress_bar.progress(70)
                         upregulated, downregulated = filter_and_sort_degs(results, logFC_threshold, p_value_threshold)
@@ -824,7 +906,8 @@ def run_degs_analysis():
                         'upregulated': upregulated,
                         'downregulated': downregulated,
                         'group1_name': group1_name,
-                        'group2_name': group2_name
+                        'group2_name': group2_name,
+                        'data_is_normalized': data_is_normalized
                     }
                     
                     # Mark DEGs as completed
@@ -832,6 +915,10 @@ def run_degs_analysis():
                     
                     # Display results
                     st.header("Analysis Results")
+                    
+                    # Show analysis configuration
+                    analysis_type = "Normalized data" if data_is_normalized else "Raw counts (CPM normalized)"
+                    st.info(f"**Analysis Type:** {analysis_type}")
                     
                     # Summary statistics
                     col1, col2, col3, col4 = st.columns(4)
@@ -870,8 +957,6 @@ def run_degs_analysis():
                     # Volcano plot
                     st.subheader("Volcano Plot")
                     try:
-                        import plotly.express as px
-                        
                         # Prepare data for volcano plot
                         plot_data = results.copy()
                         plot_data['-log10(p_value)'] = -np.log10(plot_data['p_value'])
@@ -894,8 +979,8 @@ def run_degs_analysis():
                         fig.add_hline(y=-np.log10(p_value_threshold), line_dash="dash", line_color="red")
                         
                         st.plotly_chart(fig, use_container_width=True)
-                    except ImportError:
-                        st.warning("Install plotly to generate volcano plots: pip install plotly")
+                    except Exception as e:
+                        st.warning(f"Could not generate volcano plot: {e}")
                     
                     # Download results
                     st.header("Download Results")
@@ -943,7 +1028,6 @@ def run_degs_analysis():
 # PATHWAY ANALYSIS FUNCTIONS (Second Pipeline)
 # =============================================================================
 
-# RateLimitedSession and other classes/functions from second pipeline
 class RateLimitedSession:
     """Session with built-in rate limiting and retry logic"""
     
@@ -1634,23 +1718,6 @@ def run_pathway_analysis(genes_from_input=None):
     if 'analysis_results' not in st.session_state:
         st.session_state.analysis_results = {}
     
-    # # Hero section
-    # st.markdown(f"""
-    # <div class="hero" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 1.5rem; padding: 2rem;">
-    #     <div>
-    #         <h1 style="margin-bottom: 0; font-size: 2.3rem; font-weight: 800;
-    #                 background: linear-gradient(135deg, #00d4aa, #667eea);
-    #                 -webkit-background-clip: text; color: transparent;
-    #                 text-align: center;">
-    #             Gene2Therapy
-    #         </h1>
-    #         <p style="margin-top: 6px; color: #b3b8c5; font-size: 1.05rem;">
-    #             Advanced gene analysis pipeline: annotations → enrichment → disease associations → drug repurposing
-    #         </p>
-    #     </div>
-    # </div>
-    # """, unsafe_allow_html=True)
-    
     # Enhanced sidebar
     with st.sidebar:
         st.markdown('<div class="sidebar-title">🧬 BioContext Analytics</div>', unsafe_allow_html=True)
@@ -2124,7 +2191,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
             
             if not filtered_drugs.empty:
                 # FIXED: Correct Avg Phase calculation - only consider valid phases > 0
-                valid_phases = filtered_drugs[filtered_drugs['phase'] > 0]['phase']
+                valid_phases = filtered_drugs[filtered_drugs['phase_numeric'] > 0]['phase_numeric']
                 avg_phase = valid_phases.mean() if len(valid_phases) > 0 else 0
                 
                 # Summary metrics with CORRECTED Avg Phase
@@ -2436,7 +2503,6 @@ def main():
     # Initialize session state
     initialize_session_state()
     
-       
     # Main title and mode selection - CENTERED TITLE
     st.markdown("<h1 style='text-align: center;'>Gene2Therapy</h1>", unsafe_allow_html=True)
     
