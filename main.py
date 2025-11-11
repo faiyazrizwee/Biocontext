@@ -1744,7 +1744,7 @@ def run_pathway_analysis(genes_from_input=None):
     
     # Drug filtering options
     st.markdown("---")
-    st.markdown("**💊 Drug Analysis Filters**")
+    st.markdown("**Drug Analysis Filters**")
     
     col_phase, col_type = st.columns([1, 1])
     
