@@ -1695,8 +1695,8 @@ def run_pathway_analysis(genes_from_input=None):
     
     # Input Section
     st.title("💊 Pathway & Drug Analyzer")
-    st.markdown('<div class="hint">📋 Upload your gene list or paste gene symbols to begin the analysis pipeline. All API calls are optimized with rate limiting and caching.</div>', unsafe_allow_html=True)
-    
+    st.markdown("""This tool performs pathway enrichment analysis and drug discovery based on the give DEGs input.""")
+
     # Email input for NCBI
     email = st.text_input(
         "📧 NCBI Entrez Email (Required)", 
