@@ -2476,12 +2476,12 @@ def main():
     # Display appropriate pipeline based on selection
     if st.session_state.analysis_mode == 'degs_only':
         st.markdown("---")
-        st.info("🔬 Running Differential Expression Analysis Only")
+        st.info("🔬 Running Differential Expression Analysis")
         run_degs_analysis()
     
     elif st.session_state.analysis_mode == 'pathway_only':
         st.markdown("---")
-        st.info("💊 Running Pathway Enrichment & Drug Discovery Only")
+        st.info("💊 Running Pathway Enrichment & Drug Discovery")
         run_pathway_analysis()
     
     else:
