@@ -2481,7 +2481,7 @@ def main():
     
     elif st.session_state.analysis_mode == 'pathway_only':
         st.markdown("---")
-        st.info("💊 Running Pathway Enrichment & Drug Discovery")
+        st.info("🔬 Running Pathway Enrichment & Drug Discovery")
         run_pathway_analysis()
     
     else:
