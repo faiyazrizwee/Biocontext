@@ -1762,7 +1762,7 @@ def run_pathway_analysis(genes_from_input=None):
     
     # Input Section
     st.title("💊 Pathway & Drug Analyzer")
-    st.markdown("""This tool performs pathway enrichment analysis and drug discovery based on the give DEGs input.""")
+    st.markdown("""This tool performs pathway enrichment analysis and drug discovery based on the given DEGs input.""")
 
     # Email input for NCBI
     email = st.text_input(
