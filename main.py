@@ -943,6 +943,38 @@ def normalize_to_cpm(count_matrix):
     cpm_matrix = count_matrix.div(library_sizes, axis=1) * 1e6
     return cpm_matrix
 
+import numpy as np
+import pandas as pd
+
+def normalize_with_deseq2(count_matrix):
+    """
+    Correct DESeq2-style median-of-ratios normalization
+    """
+
+    # Convert to float for division
+    counts = count_matrix.astype(float)
+
+    # 1️⃣ Compute geometric mean per gene
+    # Exclude genes with any zero counts (DESeq2 rule)
+    nonzero_mask = (counts > 0).all(axis=1)
+    counts_nz = counts.loc[nonzero_mask]
+
+    geometric_means = np.exp(
+        np.log(counts_nz).mean(axis=1)
+    )
+
+    # Compute ratios (raw counts / geometric means)
+    ratios = counts_nz.div(geometric_means, axis=0)
+
+    # Compute size factors (median of ratios per sample)
+    size_factors = ratios.median(axis=0)
+
+    # Normalize raw counts 
+    normalized = counts.div(size_factors, axis=1)
+
+    return normalized
+
+
 def calculate_differential_expression_normalized(normalized_matrix, sample_group1, sample_group2):
     """
     Calculate differential expression for normalized data
@@ -981,17 +1013,24 @@ def calculate_differential_expression_normalized(normalized_matrix, sample_group
     return results
 
 @st.cache_data
-def cached_calculate_de(_count_matrix, sample_group1, sample_group2, logFC_threshold, p_value_threshold, data_is_normalized):
+def cached_calculate_de(_count_matrix, sample_group1, sample_group2, logFC_threshold, p_value_threshold, 
+                        data_is_normalized, normalization_method="CPM"):
     """
-    Cached version of differential expression analysis
+    Cached version of differential expression analysis with normalization option
     """
-    if data_is_normalized:
-        results = calculate_differential_expression_normalized(_count_matrix, sample_group1, sample_group2)
-    else:
-        results = calculate_differential_expression_fast(_count_matrix, sample_group1, sample_group2)
+    # Apply normalization if needed
+    analysis_matrix = _count_matrix.copy()
+    if not data_is_normalized:
+        if normalization_method == "CPM (Counts Per Million)":
+            analysis_matrix = normalize_to_cpm(analysis_matrix)
+        elif normalization_method == "DESeq2 (Median of Ratios)":
+            analysis_matrix = normalize_with_deseq2(analysis_matrix)
     
+    # Calculate differential expression on normalized data
+    results = calculate_differential_expression_normalized(analysis_matrix, sample_group1, sample_group2)
     upregulated, downregulated = filter_and_sort_degs(results, logFC_threshold, p_value_threshold)
-    return results, upregulated, downregulated
+    
+    return results, upregulated, downregulated, analysis_matrix
 
 def run_degs_analysis():
     """Run the DEGs analysis pipeline"""
@@ -1038,6 +1077,28 @@ def run_degs_analysis():
                 help="Check if your data is already normalized (FPKM, TPM, etc.)"
             )
         
+        # ========== ADD NORMALIZATION METHOD SELECTION ==========
+        if not data_is_normalized and uploaded_file is not None:
+            st.markdown('<div class="section-title">Normalization Settings</div>', unsafe_allow_html=True)
+            
+            col_norm1, col_norm2 = st.columns([1, 2])
+            
+            with col_norm1:
+                normalization_method = st.selectbox(
+                    "Normalization Method",
+                    ["CPM (Counts Per Million)", 
+                     "DESeq2 (Median of Ratios)"],
+                    help="Select normalization method for raw counts"
+                )
+            
+            with col_norm2:
+                if normalization_method == "CPM (Counts Per Million)":
+                    st.info("🔬 **CPM**: Simple library size normalization. Divides counts by total library size and scales to million.")
+                elif normalization_method == "DESeq2 (Median of Ratios)":
+                    st.info("🔬 **DESeq2**: Robust normalization using median ratios. Better for datasets with many zeros.")
+        else:
+            normalization_method = "None (already normalized)"
+        
         if uploaded_file is not None:
             try:
                 if uploaded_file.name.endswith('.csv'):
@@ -1060,13 +1121,18 @@ def run_degs_analysis():
                 # Apply normalization if needed
                 analysis_matrix = count_matrix.copy()
                 if not data_is_normalized:
-                    with st.spinner("🔄 Applying CPM normalization..."):
-                        analysis_matrix = normalize_to_cpm(analysis_matrix)
-                    st.success("✅ Normalization completed")
+                    with st.spinner(f"🔄 Applying {normalization_method}..."):
+                        if normalization_method == "CPM (Counts Per Million)":
+                            analysis_matrix = normalize_to_cpm(analysis_matrix)
+                        elif normalization_method == "DESeq2 (Median of Ratios)":
+                            analysis_matrix = normalize_with_deseq2(analysis_matrix)
+                    
+                    st.success(f"✅ {normalization_method} normalization completed")
                 
                 st.session_state.analysis_matrix = analysis_matrix
                 st.session_state.uploaded_file = uploaded_file.name
                 st.session_state.data_is_normalized = data_is_normalized
+                st.session_state.normalization_method = normalization_method
                 
             except Exception as e:
                 st.error(f"❌ Error processing file: {str(e)}")
@@ -1179,29 +1245,40 @@ def run_degs_analysis():
                 progress_bar.progress(10)
                 
                 try:
+                    # Get normalization method from session state
+                    normalization_method = st.session_state.get('normalization_method', 'CPM (Counts Per Million)')
+                    data_is_normalized = st.session_state.get('data_is_normalized', False)
+                    
                     # Perform analysis
                     if params['use_caching']:
-                        results, upregulated, downregulated = cached_calculate_de(
+                        results, upregulated, downregulated, normalized_matrix = cached_calculate_de(
                             analysis_matrix,
                             params['group1_samples'],
                             params['group2_samples'],
                             params['logFC_threshold'],
                             params['p_value_threshold'],
-                            st.session_state.get('data_is_normalized', False)
+                            data_is_normalized,
+                            normalization_method
                         )
                     else:
-                        if st.session_state.get('data_is_normalized', False):
-                            results = calculate_differential_expression_normalized(
-                                analysis_matrix,
-                                params['group1_samples'],
-                                params['group2_samples']
-                            )
+                        # Apply normalization if needed
+                        if not data_is_normalized:
+                            if normalization_method == "CPM (Counts Per Million)":
+                                normalized_matrix = normalize_to_cpm(analysis_matrix)
+                            elif normalization_method == "DESeq2 (Median of Ratios)":
+                                normalized_matrix = normalize_with_deseq2(analysis_matrix)
+                            else:
+                                normalized_matrix = analysis_matrix
                         else:
-                            results = calculate_differential_expression_fast(
-                                analysis_matrix,
-                                params['group1_samples'],
-                                params['group2_samples']
-                            )
+                            normalized_matrix = analysis_matrix
+                        
+                        results = calculate_differential_expression_normalized(
+                            normalized_matrix,
+                            params['group1_samples'],
+                            params['group2_samples']
+                        )
+                        status_text.text("Filtering significant genes...")
+                        progress_bar.progress(70)
                         upregulated, downregulated = filter_and_sort_degs(
                             results,
                             params['logFC_threshold'],
@@ -1212,6 +1289,9 @@ def run_degs_analysis():
                     status_text.text("✅ Analysis complete!")
                     time.sleep(0.5)
                     
+                    # Store the normalized matrix for display
+                    st.session_state.normalized_matrix = normalized_matrix
+                    
                     # Clear progress
                     progress_bar.empty()
                     status_text.empty()
@@ -1221,7 +1301,9 @@ def run_degs_analysis():
                         'results': results,
                         'upregulated': upregulated,
                         'downregulated': downregulated,
-                        'params': params
+                        'params': params,
+                        'normalization_method': normalization_method,
+                        'data_is_normalized': data_is_normalized
                     }
                     st.session_state.degs_completed = True
                     
@@ -1245,6 +1327,10 @@ def run_degs_analysis():
                     st.metric("Upregulated", len(results_data['upregulated']))
                 with col4:
                     st.metric("Downregulated", len(results_data['downregulated']))
+                
+                # Show normalization info
+                if not data_is_normalized:
+                    st.info(f"🔬 **Normalization Method:** {normalization_method}")
                 
                 # Gene tables
                 st.markdown("### 🧬 Top Differentially Expressed Genes")
@@ -1957,6 +2043,7 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
     logger.warning("No drugs collected from any target")
     return pd.DataFrame()
 
+# Network Visualization Functions
 def create_gene_disease_drug_network(df_diseases, df_drugs):
     """Create a gene-disease-drug network visualization with distinct colors"""
     
@@ -2961,7 +3048,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
         else:
             st.info("ℹ️ No drug suggestions available")
     
-    #Network Visualization
+    # Network Visualization
     with tab_viz:
         st.markdown('<div class="section-title">🌐 Interactive Network Visualization</div>', unsafe_allow_html=True)
         
