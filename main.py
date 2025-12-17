@@ -59,53 +59,71 @@ def safe_api_call(func):
 
 # Set page configuration
 st.set_page_config(
-    page_title="Integrated Gene Analysis Pipeline",
+    page_title="Gene2Therapy - Integrated Gene Analysis",
     page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # =============================================================================
-# CONSISTENT DARK THEME CSS FOR ALL MODES
+# MODERN LIGHT THEME CSS
 # =============================================================================
 
-def get_dark_theme_css():
+def get_light_theme_css():
     return """
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Source+Sans+Pro:wght@400;600;700&display=swap');
 
   :root {
-    --bg: #0f1419;
-    --panel: #1a1f2e;
-    --surface: #252b3a;
-    --text: #ffffff;
-    --text-muted: #b3b8c5;
-    --text-secondary: #8b92a5;
-    --border: #2d3748;
-    --border-strong: #4a5568;
-    --accent: #00d4aa;
-    --accent-hover: #00b894;
-    --accent-active: #00a085;
-    --secondary: #667eea;
-    --secondary-hover: #5a67d8;
-    --danger: #f56565;
-    --warning: #ed8936;
-    --success: #48bb78;
-    --input-bg: #2d3748;
-    --shadow: rgba(0, 0, 0, 0.3);
+    --bg: #ffffff;
+    --panel: #f8fafc;
+    --surface: #ffffff;
+    --card: #ffffff;
+    --text: #1e293b;
+    --text-muted: #64748b;
+    --text-secondary: #94a3b8;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --accent-active: #1d4ed8;
+    --accent-light: #dbeafe;
+    --secondary: #10b981;
+    --secondary-hover: #059669;
+    --secondary-light: #d1fae5;
+    --danger: #ef4444;
+    --danger-light: #fee2e2;
+    --warning: #f59e0b;
+    --warning-light: #fef3c7;
+    --success: #10b981;
+    --success-light: #d1fae5;
+    --info: #0ea5e9;
+    --info-light: #e0f2fe;
+    --input-bg: #ffffff;
+    --shadow: rgba(0, 0, 0, 0.05);
+    --shadow-strong: rgba(0, 0, 0, 0.1);
+    --gradient: linear-gradient(135deg, #3b82f6 0%, #10b981 100%);
+    --gradient-light: linear-gradient(135deg, #dbeafe 0%, #d1fae5 100%);
   }
 
   /* Global Styles */
   .stApp {
-    background: var(--bg);
+    background: var(--bg) !important;
     color: var(--text);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+  }
+
+  /* Smooth transitions */
+  * {
+    transition: all 0.2s ease;
   }
 
   /* Header */
   header[data-testid="stHeader"] {
     background: var(--bg) !important;
     border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(10px);
   }
 
   .block-container {
@@ -116,126 +134,146 @@ def get_dark_theme_css():
 
   /* Sidebar */
   section[data-testid="stSidebar"] {
-    background: var(--panel) !important;
+    background: linear-gradient(180deg, var(--panel) 0%, #f1f5f9 100%) !important;
     border-right: 1px solid var(--border);
+    box-shadow: 2px 0 12px var(--shadow);
   }
 
   section[data-testid="stSidebar"] * {
     color: var(--text) !important;
   }
 
-  /* Mode Selection Buttons */
-  .mode-button {
-    background: linear-gradient(135deg, var(--panel) 0%, var(--surface) 100%) !important;
-    border: 2px solid var(--border) !important;
-    border-radius: 12px !important;
-    padding: 2rem 1rem !important;
-    color: var(--text) !important;
-    font-weight: 600 !important;
-    font-size: 1.1rem !important;
-    transition: all 0.3s ease !important;
-    height: 120px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    text-align: center !important;
-    margin-bottom: 1.5rem !important;
-  }
-
-  .mode-button:hover {
-    border-color: var(--accent) !important;
-    transform: translateY(-2px) !important;
-    box-shadow: 0 8px 25px rgba(0, 212, 170, 0.2) !important;
-  }
-
-  .mode-button:active {
-    transform: translateY(0) !important;
-  }
-
-  .mode-button.active {
-    border-color: var(--accent) !important;
-    background: linear-gradient(135deg, var(--accent), var(--secondary)) !important;
-    color: white !important;
-    box-shadow: 0 4px 15px rgba(0, 212, 170, 0.3) !important;
-  }
-
   /* Hero Section */
   .hero {
-    background: linear-gradient(135deg, var(--panel) 0%, var(--surface) 100%);
+    background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 2rem;
-    margin: 1rem 0 2rem 0;
+    border-radius: 20px;
+    padding: 2.5rem;
+    margin: 1rem 0 2.5rem 0;
     box-shadow: 0 4px 20px var(--shadow);
-    display: flex;
-    align-items: center;
-    gap: 2rem;
-    min-height: 180px;
+    position: relative;
+    overflow: hidden;
   }
 
-  .hero-content {
-    flex: 1;
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: var(--gradient);
   }
 
-  .hero-logo {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .hero h1 {
-    font-size: 2.5rem;
+  .hero-content h1 {
+    font-size: 2.75rem;
     font-weight: 800;
-    margin: 0 0 0.5rem 0;
-    background: linear-gradient(135deg, var(--accent), var(--secondary));
+    margin: 0 0 1rem 0;
+    background: var(--gradient);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
     line-height: 1.2;
+    font-family: 'Source Sans Pro', sans-serif;
   }
 
-  .hero p {
+  .hero-content p {
     color: var(--text-muted);
     font-size: 1.1rem;
     margin: 0;
-    line-height: 1.5;
-  }
-
-  .logo-img {
-    height: 120px !important;
-    width: auto !important;
-    max-width: 120px !important;
-    object-fit: contain;
-    border-radius: 12px;
+    line-height: 1.6;
+    max-width: 600px;
   }
 
   /* Section Titles */
   .section-title {
-    font-size: 1.4rem;
+    font-size: 1.5rem;
     font-weight: 700;
     color: var(--text);
-    margin: 2rem 0 1rem 0;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding-bottom: 0.5rem;
+    margin: 2.5rem 0 1.5rem 0;
+    padding-bottom: 0.75rem;
     border-bottom: 2px solid var(--border);
+    position: relative;
+    font-family: 'Source Sans Pro', sans-serif;
   }
 
-  .section-title .icon {
-    font-size: 1.3rem;
+  .section-title::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 80px;
+    height: 2px;
+    background: var(--gradient);
   }
 
-  /* Hints */
-  .hint {
-    color: var(--text-secondary);
-    font-size: 0.95rem;
-    margin-bottom: 1.5rem;
-    padding: 1rem;
+  /* Cards */
+  .card {
     background: var(--surface);
-    border-radius: 8px;
-    border-left: 4px solid var(--accent);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 8px var(--shadow);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px var(--shadow-strong);
+  }
+
+  /* Mode Selection Buttons */
+  .mode-button {
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: 16px;
+    padding: 2rem 1.5rem;
+    color: var(--text);
+    font-weight: 600;
+    font-size: 1.1rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    height: 140px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    margin-bottom: 1.5rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .mode-button:hover {
+    border-color: var(--accent);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 30px rgba(59, 130, 246, 0.15);
+  }
+
+  .mode-button:active {
+    transform: translateY(-1px);
+  }
+
+  .mode-button.active {
+    border-color: var(--accent);
+    background: linear-gradient(135deg, #f0f9ff 0%, #f0fdf4 100%);
+    box-shadow: 0 8px 25px rgba(59, 130, 246, 0.2);
+  }
+
+  .mode-button.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--gradient);
+  }
+
+  .mode-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    display: block;
   }
 
   /* Input Fields */
@@ -244,13 +282,13 @@ def get_dark_theme_css():
     background: var(--input-bg) !important;
     border: 2px solid var(--border) !important;
     border-radius: 12px !important;
-    transition: border-color 0.2s ease;
+    transition: all 0.2s ease;
   }
 
   .stTextInput > div > div:focus-within,
   .stTextArea > div > div:focus-within {
     border-color: var(--accent) !important;
-    box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.1) !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
   }
 
   .stTextInput input,
@@ -258,6 +296,7 @@ def get_dark_theme_css():
     background: transparent !important;
     color: var(--text) !important;
     font-family: 'Inter', sans-serif;
+    font-size: 0.95rem;
   }
 
   .stTextInput input::placeholder,
@@ -268,15 +307,16 @@ def get_dark_theme_css():
   /* File Uploader */
   .stFileUploader [data-testid="stFileUploaderDropzone"] {
     background: var(--surface) !important;
-    border: 2px solid var(--border) !important;
-    border-radius: 12px !important;
-    padding: 2rem !important;
-    transition: all 0.2s ease;
+    border: 2px dashed var(--border) !important;
+    border-radius: 16px !important;
+    padding: 3rem 2rem !important;
+    transition: all 0.3s ease;
   }
 
   .stFileUploader [data-testid="stFileUploaderDropzone"]:hover {
     border-color: var(--accent) !important;
-    background: var(--input-bg) !important;
+    background: var(--accent-light) !important;
+    border-style: solid !important;
   }
 
   .stFileUploader [data-testid="stFileUploaderDropzone"] * {
@@ -291,167 +331,341 @@ def get_dark_theme_css():
   }
 
   [data-baseweb="popover"] [role="listbox"] {
-    background: var(--panel) !important;
+    background: var(--surface) !important;
     border: 1px solid var(--border) !important;
-    border-radius: 8px !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 20px var(--shadow) !important;
   }
 
   /* Buttons */
   .stButton > button {
-    background: linear-gradient(135deg, var(--accent), var(--secondary)) !important;
+    background: var(--gradient) !important;
     color: white !important;
     border: none !important;
     border-radius: 12px !important;
-    padding: 0.75rem 2rem !important;
+    padding: 0.875rem 2rem !important;
     font-weight: 600 !important;
     font-size: 1rem !important;
-    transition: all 0.2s ease !important;
-    box-shadow: 0 4px 15px rgba(0, 212, 170, 0.3) !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3) !important;
+    position: relative;
+    overflow: hidden;
   }
 
   .stButton > button:hover {
     transform: translateY(-2px) !important;
-    box-shadow: 0 8px 25px rgba(0, 212, 170, 0.4) !important;
-    background: linear-gradient(135deg, var(--accent-hover), var(--secondary-hover)) !important;
+    box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4) !important;
   }
 
   .stButton > button:active {
     transform: translateY(0) !important;
   }
 
+  .stButton > button::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 5px;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.5);
+    opacity: 0;
+    border-radius: 100%;
+    transform: scale(1, 1) translate(-50%);
+    transform-origin: 50% 50%;
+  }
+
+  .stButton > button:focus:not(:active)::after {
+    animation: ripple 1s ease-out;
+  }
+
+  @keyframes ripple {
+    0% {
+      transform: scale(0, 0);
+      opacity: 0.5;
+    }
+    100% {
+      transform: scale(20, 20);
+      opacity: 0;
+    }
+  }
+
+  /* Secondary Buttons */
+  .secondary-button > button {
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    border: 2px solid var(--border) !important;
+    border-radius: 12px !important;
+    padding: 0.875rem 2rem !important;
+    font-weight: 600 !important;
+    font-size: 1rem !important;
+    transition: all 0.3s ease !important;
+    box-shadow: 0 2px 8px var(--shadow) !important;
+  }
+
+  .secondary-button > button:hover {
+    border-color: var(--accent) !important;
+    background: var(--accent-light) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 15px var(--shadow-strong) !important;
+  }
+
   /* Checkboxes */
   .stCheckbox > label {
     color: var(--text) !important;
     font-weight: 500;
+    padding: 0.5rem 0;
+  }
+
+  .stCheckbox [data-baseweb="checkbox"] > div {
+    border-radius: 6px !important;
   }
 
   /* Tabs */
   .stTabs [data-baseweb="tab-list"] {
     gap: 0.5rem;
+    border-bottom: 2px solid var(--border);
   }
 
   .stTabs [data-baseweb="tab"] {
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: transparent;
+    border: none;
     border-radius: 8px 8px 0 0;
     color: var(--text-muted);
-    font-weight: 500;
+    font-weight: 600;
     padding: 0.75rem 1.5rem;
     transition: all 0.2s ease;
+    font-size: 0.95rem;
   }
 
   .stTabs [aria-selected="true"] {
-    background: var(--panel);
+    background: transparent;
     color: var(--accent);
-    border-bottom-color: var(--panel);
+    position: relative;
+  }
+
+  .stTabs [aria-selected="true"]::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--gradient);
+    border-radius: 2px 2px 0 0;
   }
 
   /* DataFrames */
   .stDataFrame {
-    background: var(--panel);
+    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
     overflow: hidden;
+    box-shadow: 0 2px 8px var(--shadow);
   }
 
   .stDataFrame table {
-    background: var(--panel) !important;
+    background: var(--surface) !important;
   }
 
   .stDataFrame th {
-    background: var(--surface) !important;
+    background: var(--panel) !important;
     color: var(--text) !important;
-    font-weight: 600;
+    font-weight: 700;
     border-bottom: 2px solid var(--border) !important;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 0.05em;
   }
 
   .stDataFrame td {
-    background: var(--panel) !important;
+    background: var(--surface) !important;
     color: var(--text) !important;
     border-bottom: 1px solid var(--border) !important;
+    font-size: 0.9rem;
+  }
+
+  .stDataFrame tr:hover td {
+    background: var(--accent-light) !important;
   }
 
   /* Progress Bar */
   .stProgress > div > div > div {
-    background: linear-gradient(90deg, var(--accent), var(--secondary)) !important;
+    background: var(--gradient) !important;
+    border-radius: 4px;
   }
 
   /* Alerts */
   .stAlert {
     background: var(--surface) !important;
     border: 1px solid var(--border) !important;
-    border-radius: 8px !important;
+    border-radius: 12px !important;
     color: var(--text) !important;
+    padding: 1rem 1.25rem !important;
+    box-shadow: 0 2px 8px var(--shadow);
   }
 
   .stSuccess {
     border-left: 4px solid var(--success) !important;
+    background: var(--success-light) !important;
   }
 
   .stError {
     border-left: 4px solid var(--danger) !important;
+    background: var(--danger-light) !important;
   }
 
   .stWarning {
     border-left: 4px solid var(--warning) !important;
+    background: var(--warning-light) !important;
   }
 
   .stInfo {
-    border-left: 4px solid var(--secondary) !important;
+    border-left: 4px solid var(--info) !important;
+    background: var(--info-light) !important;
   }
 
-  /* Sidebar Content */
-  .sidebar-title {
-    font-weight: 700;
-    font-size: 1.2rem;
-    margin-bottom: 0.5rem;
-    color: var(--accent);
+  /* Metrics */
+  .stMetric {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    box-shadow: 0 2px 8px var(--shadow);
   }
 
-  .sidebar-tip {
-    color: var(--text-muted);
-    font-size: 0.9rem;
-    line-height: 1.4;
+  .stMetric > div {
+    color: var(--text) !important;
+  }
+
+  .stMetric label {
+    color: var(--text-muted) !important;
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .stMetric [data-testid="stMetricValue"] {
+    font-size: 2rem !important;
+    font-weight: 700 !important;
+    color: var(--text) !important;
+    font-family: 'Source Sans Pro', sans-serif;
   }
 
   /* Download Buttons */
   .stDownloadButton > button {
     background: var(--surface) !important;
     color: var(--text) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 8px !important;
-    font-weight: 500 !important;
+    border: 2px solid var(--border) !important;
+    border-radius: 12px !important;
+    font-weight: 600 !important;
     transition: all 0.2s ease !important;
+    padding: 0.75rem 1.5rem !important;
   }
 
   .stDownloadButton > button:hover {
-    background: var(--border) !important;
+    background: var(--accent-light) !important;
     border-color: var(--accent) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 15px var(--shadow-strong) !important;
   }
 
   /* Plotly Charts */
   .js-plotly-plot {
-    background: var(--panel) !important;
-    border-radius: 12px;
+    background: var(--surface) !important;
+    border-radius: 16px;
     overflow: hidden;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 20px var(--shadow);
+  }
+
+  /* Sidebar Content */
+  .sidebar-title {
+    font-weight: 800;
+    font-size: 1.3rem;
+    margin-bottom: 1rem;
+    color: var(--accent);
+    font-family: 'Source Sans Pro', sans-serif;
+    background: var(--gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--border);
+  }
+
+  .sidebar-tip {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem;
+    margin: 0.5rem 0;
+  }
+
+  /* Expanders */
+  .streamlit-expanderHeader {
+    background: var(--panel) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+    color: var(--text) !important;
+    font-weight: 600 !important;
+  }
+
+  .streamlit-expanderHeader:hover {
+    background: var(--accent-light) !important;
+    border-color: var(--accent) !important;
+  }
+
+  .streamlit-expanderContent {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 0 0 12px 12px !important;
+    border-top: none !important;
+  }
+
+  /* Tooltips */
+  [data-baseweb="tooltip"] {
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 20px var(--shadow) !important;
+  }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--panel);
+    border-radius: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 10px;
+    border: 2px solid var(--panel);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--accent);
   }
 
   /* Responsive Design */
   @media (max-width: 768px) {
     .hero {
-      flex-direction: column;
-      text-align: center;
-      gap: 1rem;
-      padding: 1.5rem;
+      padding: 2rem 1.5rem;
+      margin: 0.5rem 0 1.5rem 0;
     }
     
-    .hero h1 {
+    .hero-content h1 {
       font-size: 2rem;
-    }
-    
-    .logo-img {
-      height: 80px !important;
-      max-width: 80px !important;
     }
     
     .block-container {
@@ -460,39 +674,127 @@ def get_dark_theme_css():
     }
     
     .section-title {
-      font-size: 1.2rem;
+      font-size: 1.3rem;
+      margin: 2rem 0 1rem 0;
     }
 
     .mode-button {
-      padding: 1.5rem 0.5rem !important;
-      height: 100px !important;
+      padding: 1.5rem 1rem !important;
+      height: 120px !important;
       font-size: 1rem !important;
+    }
+    
+    .mode-icon {
+      font-size: 2rem !important;
+      margin-bottom: 0.75rem !important;
     }
   }
 
-  /* Scrollbars */
-  ::-webkit-scrollbar {
+  /* Animations */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-in {
+    animation: fadeIn 0.5s ease-out;
+  }
+
+  /* Badges */
+  .badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    background: var(--accent-light);
+    color: var(--accent);
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin: 0.25rem;
+  }
+
+  /* Status Indicators */
+  .status-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+
+  .status-dot {
     width: 8px;
     height: 8px;
+    border-radius: 50%;
+    background: var(--success);
   }
 
-  ::-webkit-scrollbar-track {
+  .status-dot.pending {
+    background: var(--warning);
+  }
+
+  .status-dot.error {
+    background: var(--danger);
+  }
+
+  /* Loading Spinner */
+  .loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  /* Feature Cards */
+  .feature-card {
     background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    text-align: center;
+    transition: all 0.3s ease;
   }
 
-  ::-webkit-scrollbar-thumb {
-    background: var(--border-strong);
-    border-radius: 4px;
+  .feature-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 30px var(--shadow-strong);
+    border-color: var(--accent);
   }
 
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--accent);
+  .feature-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    color: var(--accent);
+  }
+
+  .feature-title {
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 0.5rem;
+    font-family: 'Source Sans Pro', sans-serif;
+  }
+
+  .feature-desc {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
   }
 </style>
 """
 
-# Apply dark theme to entire app
-st.markdown(get_dark_theme_css(), unsafe_allow_html=True)
+# Apply light theme to entire app
+st.markdown(get_light_theme_css(), unsafe_allow_html=True)
 
 # =============================================================================
 # SESSION STATE INITIALIZATION
@@ -509,7 +811,7 @@ def initialize_session_state():
     if 'degs_completed' not in st.session_state:
         st.session_state.degs_completed = False
     if 'current_pipeline_step' not in st.session_state:
-        st.session_state.current_pipeline_step = 'selection'  # 'selection', 'degs', 'pathway'
+        st.session_state.current_pipeline_step = 'selection'
     if 'degs_results' not in st.session_state:
         st.session_state.degs_results = None
     if 'analysis_results' not in st.session_state:
@@ -537,7 +839,7 @@ def calculate_differential_expression_fast(count_matrix, sample_group1, sample_g
     
     # Batch t-test calculation for better performance
     p_values = []
-    batch_size = 1000  # Process 1000 genes at a time to balance memory and speed
+    batch_size = 1000
     
     total_genes = len(count_matrix)
     
@@ -615,7 +917,7 @@ def check_data_quality(count_matrix, group1_samples, group2_samples):
     if inf_count > 0:
         quality_issues.append(f"Found {inf_count} infinite values in the data")
     
-    # Check for zero variance genes using vectorized operations
+    # Check for zero variance genes
     all_samples = group1_samples + group2_samples
     variances = count_matrix[all_samples].var(axis=1)
     zero_var_genes = (variances == 0).sum()
@@ -636,7 +938,6 @@ def check_data_quality(count_matrix, group1_samples, group2_samples):
 def normalize_to_cpm(count_matrix):
     """
     Normalize raw counts to CPM (Counts Per Million)
-    Simple library size normalization
     """
     library_sizes = count_matrix.sum(axis=0)
     cpm_matrix = count_matrix.div(library_sizes, axis=1) * 1e6
@@ -647,7 +948,7 @@ def calculate_differential_expression_normalized(normalized_matrix, sample_group
     Calculate differential expression for normalized data
     """
     # Apply log2 transformation for normalized data
-    log_data = np.log2(normalized_matrix + 0.1)  # Small pseudocount
+    log_data = np.log2(normalized_matrix + 0.1)
     
     # Calculate means
     mean_group1 = log_data[sample_group1].mean(axis=1)
@@ -673,7 +974,7 @@ def calculate_differential_expression_normalized(normalized_matrix, sample_group
         'Gene': normalized_matrix.index,
         'logFC': logFC,
         'p_value': p_values,
-        'mean_group1': np.exp2(mean_group1) - 0.1,  # Convert back to linear scale for display
+        'mean_group1': np.exp2(mean_group1) - 0.1,
         'mean_group2': np.exp2(mean_group2) - 0.1
     })
     
@@ -694,335 +995,361 @@ def cached_calculate_de(_count_matrix, sample_group1, sample_group2, logFC_thres
 
 def run_degs_analysis():
     """Run the DEGs analysis pipeline"""
-    st.title("🧬 Differential Expression Analyzer")
     st.markdown("""
-    This tool performs differential expression analysis between two sample groups using RNA-seq count data.
-    Upload your count matrix and configure the analysis parameters below.
-    """)
+    <div class="hero">
+        <div class="hero-content">
+            <h1>🧬 Differential Expression Analyzer</h1>
+            <p>Identify significantly expressed genes between sample groups using RNA-seq count data. 
+            Upload your data and configure analysis parameters below.</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # File format instructions in sidebar (without expander)
-    st.sidebar.header("📁 Expected File Format")
-    st.sidebar.markdown("""
-    - **File type**: CSV or TSV
-    - **Rows**: Genes (with gene names/IDs in first column)
-    - **Columns**: Samples
-    - **First row**: Column headers (sample names)
-    - **First column**: Gene identifiers
+    # Sidebar content
+    with st.sidebar:
+        st.markdown('<div class="sidebar-title">📁 File Format Guide</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sidebar-tip">CSV/TSV file with genes as rows and samples as columns. First column should contain gene identifiers.</div>', unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        st.markdown('<div class="sidebar-title">⚡ Performance Tips</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sidebar-tip">• Enable caching for faster re-analysis<br>• Use normalized data when available<br>• Limit samples for quicker processing</div>', unsafe_allow_html=True)
     
-    **Example format:**
-    ```
-    Gene,Sample1,Sample2,Sample3,Sample4
-    GeneA,15,20,8,25
-    GeneB,100,85,120,95
-    GeneC,5,3,7,4
-    ```
-    """)
+    # Main content in tabs
+    tab1, tab2, tab3 = st.tabs(["📤 Upload Data", "⚙️ Configure", "📊 Results"])
     
-    # Performance features in sidebar (without expander)
-    st.sidebar.header("⚡ Performance Features")
-    st.sidebar.markdown("""
-    - **Batch processing** for faster t-test calculations
-    - **Vectorized operations** for fold change calculations
-    - **Optional caching** for repeated analyses
-    - **Progress tracking** during analysis
-    """)
-    
-    # Main section - file upload, analysis parameters, and performance settings
-    st.header("Upload Data")
-    
-    uploaded_file = st.file_uploader(
-        "📁 Choose a count matrix file",
-        type=['csv', 'tsv'],
-        help="Upload a CSV or TSV file with genes as rows and samples as columns"
-    )
-    
-    # Data type selection - Simplified to just a checkbox
-    st.header("Data Configuration")
-    
-    data_is_normalized = st.checkbox(
-        "Data is already normalized",
-        value=False,
-        help="Check if your data is already normalized (e.g., FPKM, TPM, or other normalized values). If unchecked, raw counts will be normalized using CPM."
-    )
-    
-    # Show info based on selection
-    if data_is_normalized:
-        st.info("🔬 Using provided normalized data as-is. Statistical tests will be performed on log-transformed values.")
-    else:
-        st.info("🔬 Raw counts detected. Data will be normalized using CPM (Counts Per Million) before analysis.")
-    
-    # Analysis parameters in main section
-    st.header("Analysis Parameters")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        logFC_threshold = st.number_input(
-            "logFC Threshold",
-            min_value=0.0,
-            max_value=10.0,
-            value=2.0,
-            step=0.1,
-            help="Minimum absolute log2 fold change for significance"
-        )
-    
-    with col2:
-        p_value_threshold = st.number_input(
-            "P-value Threshold",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.05,
-            step=0.01,
-            help="Maximum p-value for significance"
-        )
-    
-    # Performance settings in main section
-    st.header("Performance Settings")
-    
-    use_caching = st.checkbox(
-        "Enable result caching", 
-        value=True,
-        help="Cache results for faster re-analysis with same parameters"
-    )
-    
-    if uploaded_file is not None:
-        try:
-            # Determine file format and read data
-            if uploaded_file.name.endswith('.csv'):
-                count_matrix = pd.read_csv(uploaded_file, index_col=0)
-            else:
-                count_matrix = pd.read_csv(uploaded_file, sep='\t', index_col=0)
-            
-            st.success(f"Data loaded successfully: {count_matrix.shape[0]} genes, {count_matrix.shape[1]} samples")
-            
-            # Display data preview
-            with st.expander("Data Preview"):
-                st.dataframe(count_matrix.head(), use_container_width=True)
-                st.write(f"**Shape:** {count_matrix.shape[0]} rows × {count_matrix.shape[1]} columns")
-            
-            # Apply normalization if data is not normalized
-            analysis_matrix = count_matrix.copy()
-            if not data_is_normalized:
-                st.info("🔄 Applying CPM normalization to raw counts...")
-                analysis_matrix = normalize_to_cpm(analysis_matrix)
-                st.success("✅ CPM normalization completed")
+    with tab1:
+        st.markdown('<div class="section-title">Upload Your Data</div>', unsafe_allow_html=True)
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            uploaded_file = st.file_uploader(
+                "Choose count matrix file",
+                type=['csv', 'tsv'],
+                help="Upload CSV or TSV file with genes as rows and samples as columns",
+                label_visibility="collapsed"
+            )
+        
+        with col2:
+            data_is_normalized = st.checkbox(
+                "Data is normalized",
+                value=False,
+                help="Check if your data is already normalized (FPKM, TPM, etc.)"
+            )
+        
+        if uploaded_file is not None:
+            try:
+                if uploaded_file.name.endswith('.csv'):
+                    count_matrix = pd.read_csv(uploaded_file, index_col=0)
+                else:
+                    count_matrix = pd.read_csv(uploaded_file, sep='\t', index_col=0)
                 
-                # Show normalized data preview
-                with st.expander("Normalized Data Preview"):
-                    st.dataframe(analysis_matrix.head().round(4), use_container_width=True)
-                    st.write("**Note:** Data normalized to Counts Per Million (CPM)")
+                st.success(f"✅ Data loaded: {count_matrix.shape[0]:,} genes, {count_matrix.shape[1]} samples")
+                
+                # Data preview
+                with st.expander("📋 Data Preview"):
+                    col_preview1, col_preview2 = st.columns(2)
+                    with col_preview1:
+                        st.dataframe(count_matrix.head(), use_container_width=True)
+                    with col_preview2:
+                        st.metric("Rows (Genes)", count_matrix.shape[0])
+                        st.metric("Columns (Samples)", count_matrix.shape[1])
+                        st.metric("Total Values", count_matrix.shape[0] * count_matrix.shape[1])
+                
+                # Apply normalization if needed
+                analysis_matrix = count_matrix.copy()
+                if not data_is_normalized:
+                    with st.spinner("🔄 Applying CPM normalization..."):
+                        analysis_matrix = normalize_to_cpm(analysis_matrix)
+                    st.success("✅ Normalization completed")
+                
+                st.session_state.analysis_matrix = analysis_matrix
+                st.session_state.uploaded_file = uploaded_file.name
+                st.session_state.data_is_normalized = data_is_normalized
+                
+            except Exception as e:
+                st.error(f"❌ Error processing file: {str(e)}")
+        else:
+            st.info("👆 Upload a file to begin analysis")
+    
+    with tab2:
+        st.markdown('<div class="section-title">Analysis Configuration</div>', unsafe_allow_html=True)
+        
+        # Check if analysis matrix exists in session state
+        if 'analysis_matrix' in st.session_state and st.session_state.analysis_matrix is not None:
+            analysis_matrix = st.session_state.analysis_matrix
             
-            # Sample selection
-            st.header("Sample Group Configuration")
-            
+            # Sample group configuration
             col1, col2 = st.columns(2)
             
             with col1:
-                st.subheader("Group 1")
-                group1_name = st.text_input("Group 1 name", value="Control", key="group1_name")
+                st.subheader("Group 1 - Control")
+                group1_name = st.text_input("Group name", value="Control", key="group1_name")
                 group1_samples = st.multiselect(
-                    f"Select samples for {group1_name}",
+                    "Select samples",
                     options=analysis_matrix.columns.tolist(),
                     key="group1_samples"
                 )
-                st.write(f"Selected {len(group1_samples)} samples")
+                if group1_samples:
+                    st.markdown(f'<span class="badge">{len(group1_samples)} samples selected</span>', unsafe_allow_html=True)
             
             with col2:
-                st.subheader("Group 2")
-                group2_name = st.text_input("Group 2 name", value="Treatment", key="group2_name")
+                st.subheader("Group 2 - Treatment")
+                group2_name = st.text_input("Group name", value="Treatment", key="group2_name")
+                available_samples = [col for col in analysis_matrix.columns if col not in group1_samples]
                 group2_samples = st.multiselect(
-                    f"Select samples for {group2_name}",
-                    options=[col for col in analysis_matrix.columns if col not in group1_samples],
+                    "Select samples",
+                    options=available_samples,
                     key="group2_samples"
                 )
-                st.write(f"Selected {len(group2_samples)} samples")
+                if group2_samples:
+                    st.markdown(f'<span class="badge">{len(group2_samples)} samples selected</span>', unsafe_allow_html=True)
             
-            # Check for sample overlap
-            overlap = set(group1_samples) & set(group2_samples)
-            if overlap:
-                st.error(f"Sample overlap detected: {list(overlap)}. Please ensure groups have distinct samples.")
-                return
+            # Analysis parameters
+            st.subheader("Statistical Parameters")
+            col_param1, col_param2 = st.columns(2)
             
-            if not group1_samples or not group2_samples:
-                st.warning("Please select samples for both groups to proceed with analysis.")
-                return
+            with col_param1:
+                logFC_threshold = st.slider(
+                    "logFC Threshold",
+                    min_value=0.0,
+                    max_value=5.0,
+                    value=2.0,
+                    step=0.1,
+                    help="Minimum absolute log2 fold change for significance"
+                )
             
-            # Data quality check
-            st.header("Data Quality Check")
-            quality_issues = check_data_quality(analysis_matrix, group1_samples, group2_samples)
+            with col_param2:
+                p_value_threshold = st.select_slider(
+                    "P-value Threshold",
+                    options=[0.001, 0.01, 0.05, 0.1],
+                    value=0.05,
+                    help="Maximum p-value for significance"
+                )
             
-            if quality_issues:
-                for issue in quality_issues:
-                    st.warning(issue)
-            else:
-                st.success("No major data quality issues detected.")
+            # Performance settings
+            st.subheader("Performance Settings")
+            use_caching = st.checkbox("Enable caching", value=True)
+            show_details = st.checkbox("Show detailed results", value=False)
             
-            # Performance estimation
-            total_genes = analysis_matrix.shape[0]
-            estimated_time = max(5, total_genes // 500)  # Rough estimate: ~500 genes per second
-            st.info(f"⏱️ Estimated analysis time: {estimated_time} seconds for {total_genes:,} genes")
+            # Run analysis button
+            st.markdown("---")
+            if st.button("🚀 Run Differential Expression Analysis", type="primary", use_container_width=True):
+                if not group1_samples or not group2_samples:
+                    st.warning("⚠️ Please select samples for both groups")
+                else:
+                    # Check for overlap
+                    overlap = set(group1_samples) & set(group2_samples)
+                    if overlap:
+                        st.error(f"Sample overlap detected: {list(overlap)}")
+                    else:
+                        # Store parameters
+                        st.session_state.analysis_params = {
+                            'group1_name': group1_name,
+                            'group2_name': group2_name,
+                            'group1_samples': group1_samples,
+                            'group2_samples': group2_samples,
+                            'logFC_threshold': logFC_threshold,
+                            'p_value_threshold': p_value_threshold,
+                            'use_caching': use_caching
+                        }
+                        st.rerun()
+        else:
+            st.info("📤 Please upload data in the 'Upload Data' tab first")
+    
+    with tab3:
+        st.markdown('<div class="section-title">Analysis Results</div>', unsafe_allow_html=True)
+        
+        # FIXED: Check if analysis_params exists and analysis_matrix is not None
+        if ('analysis_params' in st.session_state and 
+            'analysis_matrix' in st.session_state and 
+            st.session_state.analysis_matrix is not None):
             
-            # Run analysis
-            if st.button("Run Differential Expression Analysis", type="primary"):
-                # Setup progress tracking
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                # Analysis steps with progress updates
+            params = st.session_state.analysis_params
+            analysis_matrix = st.session_state.analysis_matrix
+            
+            # Setup progress
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            with st.spinner("🔬 Analyzing differential expression..."):
+                # Update progress
                 status_text.text("Initializing analysis...")
                 progress_bar.progress(10)
-                time.sleep(0.5)
-                
-                status_text.text("Calculating fold changes...")
-                progress_bar.progress(30)
-                time.sleep(0.5)
                 
                 try:
-                    # Perform differential expression analysis
-                    if use_caching:
+                    # Perform analysis
+                    if params['use_caching']:
                         results, upregulated, downregulated = cached_calculate_de(
-                            analysis_matrix, group1_samples, group2_samples, logFC_threshold, p_value_threshold, data_is_normalized
+                            analysis_matrix,
+                            params['group1_samples'],
+                            params['group2_samples'],
+                            params['logFC_threshold'],
+                            params['p_value_threshold'],
+                            st.session_state.get('data_is_normalized', False)
                         )
                     else:
-                        if data_is_normalized:
-                            results = calculate_differential_expression_normalized(analysis_matrix, group1_samples, group2_samples)
+                        if st.session_state.get('data_is_normalized', False):
+                            results = calculate_differential_expression_normalized(
+                                analysis_matrix,
+                                params['group1_samples'],
+                                params['group2_samples']
+                            )
                         else:
-                            results = calculate_differential_expression_fast(analysis_matrix, group1_samples, group2_samples)
-                        status_text.text("Filtering significant genes...")
-                        progress_bar.progress(70)
-                        upregulated, downregulated = filter_and_sort_degs(results, logFC_threshold, p_value_threshold)
+                            results = calculate_differential_expression_fast(
+                                analysis_matrix,
+                                params['group1_samples'],
+                                params['group2_samples']
+                            )
+                        upregulated, downregulated = filter_and_sort_degs(
+                            results,
+                            params['logFC_threshold'],
+                            params['p_value_threshold']
+                        )
                     
                     progress_bar.progress(100)
-                    status_text.text("Analysis complete!")
+                    status_text.text("✅ Analysis complete!")
                     time.sleep(0.5)
                     
-                    # Clear progress indicators
+                    # Clear progress
                     progress_bar.empty()
                     status_text.empty()
                     
-                    # Store results in session state
+                    # Store results
                     st.session_state.degs_results = {
                         'results': results,
                         'upregulated': upregulated,
                         'downregulated': downregulated,
-                        'group1_name': group1_name,
-                        'group2_name': group2_name,
-                        'data_is_normalized': data_is_normalized
+                        'params': params
                     }
-                    
-                    # Mark DEGs as completed
                     st.session_state.degs_completed = True
                     
-                    # Display results
-                    st.header("Analysis Results")
+                except Exception as e:
+                    st.error(f"❌ Analysis failed: {str(e)}")
+            
+            # Display results if available
+            if st.session_state.degs_completed and st.session_state.degs_results:
+                results_data = st.session_state.degs_results
+                
+                # Summary metrics
+                st.markdown("### 📈 Summary Statistics")
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Total Genes", len(results_data['results']))
+                with col2:
+                    total_degs = len(results_data['upregulated']) + len(results_data['downregulated'])
+                    st.metric("Significant DEGs", total_degs)
+                with col3:
+                    st.metric("Upregulated", len(results_data['upregulated']))
+                with col4:
+                    st.metric("Downregulated", len(results_data['downregulated']))
+                
+                # Gene tables
+                st.markdown("### 🧬 Top Differentially Expressed Genes")
+                
+                tab_up, tab_down = st.tabs(["⬆️ Upregulated", "⬇️ Downregulated"])
+                
+                with tab_up:
+                    if not results_data['upregulated'].empty:
+                        display_up = results_data['upregulated'].head(10)[['Gene', 'logFC', 'p_value']].round(4)
+                        st.dataframe(display_up, use_container_width=True)
+                    else:
+                        st.info("No upregulated genes found")
+                
+                with tab_down:
+                    if not results_data['downregulated'].empty:
+                        display_down = results_data['downregulated'].head(10)[['Gene', 'logFC', 'p_value']].round(4)
+                        st.dataframe(display_down, use_container_width=True)
+                    else:
+                        st.info("No downregulated genes found")
+                
+                # Volcano plot
+                st.markdown("### 🌋 Volcano Plot")
+                try:
+                    plot_data = results_data['results'].copy()
+                    plot_data['-log10(p_value)'] = -np.log10(plot_data['p_value'])
+                    plot_data['Significant'] = (np.abs(plot_data['logFC']) > params['logFC_threshold']) & (plot_data['p_value'] < params['p_value_threshold'])
                     
-                    # Show analysis configuration
-                    analysis_type = "Normalized data" if data_is_normalized else "Raw counts (CPM normalized)"
-                    st.info(f"**Analysis Type:** {analysis_type}")
+                    fig = px.scatter(
+                        plot_data,
+                        x='logFC',
+                        y='-log10(p_value)',
+                        color='Significant',
+                        hover_data=['Gene'],
+                        title=f"{params['group1_name']} vs {params['group2_name']}",
+                        labels={'logFC': 'log2 Fold Change', '-log10(p_value)': '-log10(p-value)'},
+                        color_discrete_map={True: '#ef4444', False: '#94a3b8'},
+                        opacity=0.7
+                    )
                     
-                    # Summary statistics
-                    col1, col2, col3, col4 = st.columns(4)
+                    # Add threshold lines
+                    fig.add_vline(x=params['logFC_threshold'], line_dash="dash", line_color="#10b981")
+                    fig.add_vline(x=-params['logFC_threshold'], line_dash="dash", line_color="#10b981")
+                    fig.add_hline(y=-np.log10(params['p_value_threshold']), line_dash="dash", line_color="#10b981")
                     
-                    with col1:
-                        st.metric("Total Genes", len(results))
+                    fig.update_layout(
+                        plot_bgcolor='white',
+                        paper_bgcolor='white',
+                        font_color='#1e293b',
+                        title_font_color='#3b82f6'
+                    )
                     
-                    with col2:
-                        st.metric("Significant DEGs", len(upregulated) + len(downregulated))
-                    
-                    with col3:
-                        st.metric("Upregulated", len(upregulated))
-                    
-                    with col4:
-                        st.metric("Downregulated", len(downregulated))
-                    
-                    # Display top genes
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.subheader(f"Top Upregulated Genes in {group2_name}")
-                        if not upregulated.empty:
-                            display_up = upregulated.head(10)[['Gene', 'logFC', 'p_value', 'mean_group1', 'mean_group2']].round(4)
-                            st.dataframe(display_up, use_container_width=True)
-                        else:
-                            st.info("No upregulated genes found matching the criteria.")
-                    
-                    with col2:
-                        st.subheader(f"Top Downregulated Genes in {group2_name}")
-                        if not downregulated.empty:
-                            display_down = downregulated.head(10)[['Gene', 'logFC', 'p_value', 'mean_group1', 'mean_group2']].round(4)
-                            st.dataframe(display_down, use_container_width=True)
-                        else:
-                            st.info("No downregulated genes found matching the criteria.")
-                    
-                    # Volcano plot
-                    st.subheader("Volcano Plot")
-                    try:
-                        # Prepare data for volcano plot
-                        plot_data = results.copy()
-                        plot_data['-log10(p_value)'] = -np.log10(plot_data['p_value'])
-                        plot_data['Significant'] = (np.abs(plot_data['logFC']) > logFC_threshold) & (plot_data['p_value'] < p_value_threshold)
-                        
-                        fig = px.scatter(
-                            plot_data,
-                            x='logFC',
-                            y='-log10(p_value)',
-                            color='Significant',
-                            hover_data=['Gene'],
-                            title=f"Volcano Plot: {group1_name} vs {group2_name}",
-                            labels={'logFC': 'log2 Fold Change', '-log10(p_value)': '-log10(p-value)'},
-                            color_discrete_map={True: 'red', False: 'gray'}
-                        )
-                        
-                        # Add threshold lines
-                        fig.add_vline(x=logFC_threshold, line_dash="dash", line_color="red")
-                        fig.add_vline(x=-logFC_threshold, line_dash="dash", line_color="red")
-                        fig.add_hline(y=-np.log10(p_value_threshold), line_dash="dash", line_color="red")
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                    except Exception as e:
-                        st.warning(f"Could not generate volcano plot: {e}")
-                    
-                    # Download results
-                    st.header("Download Results")
-                    
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    
-                    # All significant DEGs
-                    all_degs = pd.concat([upregulated, downregulated])
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.warning(f"Could not generate volcano plot: {e}")
+                
+                # Download section
+                st.markdown("### 📥 Download Results")
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+                col_dl1, col_dl2 = st.columns(2)
+                
+                with col_dl1:
+                    # All DEGs
+                    all_degs = pd.concat([results_data['upregulated'], results_data['downregulated']])
                     if not all_degs.empty:
                         csv_all = all_degs.to_csv(index=False)
                         st.download_button(
-                            label="Download All Significant DEGs",
+                            label="Download Significant DEGs",
                             data=csv_all,
-                            file_name=f"all_significant_DEGs_{timestamp}.csv",
-                            mime="text/csv"
+                            file_name=f"significant_DEGs_{timestamp}.csv",
+                            mime="text/csv",
+                            use_container_width=True
                         )
-                    
+                
+                with col_dl2:
                     # Complete results
-                    csv_complete = results.to_csv(index=False)
+                    csv_complete = results_data['results'].to_csv(index=False)
                     st.download_button(
                         label="Download Complete Results",
                         data=csv_complete,
                         file_name=f"complete_DE_results_{timestamp}.csv",
-                        mime="text/csv"
+                        mime="text/csv",
+                        use_container_width=True
                     )
+                
+                # Continue to pathway analysis
+                st.markdown("---")
+                st.markdown("### 🔄 Continue Analysis")
+                
+                if st.button("🚀 Continue to Pathway & Drug Analysis", type="primary", use_container_width=True):
+                    # Get top genes for pathway analysis
+                    top_up = results_data['upregulated'].head(10)['Gene'].tolist() if not results_data['upregulated'].empty else []
+                    top_down = results_data['downregulated'].head(10)['Gene'].tolist() if not results_data['downregulated'].empty else []
+                    pathway_genes = top_up + top_down
                     
-                    # Results summary
-                    with st.expander("Detailed Results Summary"):
-                        st.dataframe(results.round(4), use_container_width=True)
-                    
-                except Exception as e:
-                    progress_bar.empty()
-                    status_text.empty()
-                    st.error(f"Error during analysis: {str(e)}")
+                    st.session_state.pathway_genes = pathway_genes
+                    st.session_state.analysis_mode = 'pathway_only'
+                    st.session_state.current_pipeline_step = 'pathway'
+                    st.rerun()
         
-        except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
-            st.info("Please ensure your file is properly formatted with genes as rows and samples as columns.")
-    
-    else:
-        # Display simple instructions when no file is uploaded
-        st.info("👆 Please upload a count matrix file to begin analysis.")
+        # FIXED: Check if analysis matrix is not in session state
+        elif 'analysis_matrix' not in st.session_state:
+            st.info("📤 Please upload data in the 'Upload Data' tab first")
+        else:
+            st.info("⚙️ Configure and run the analysis in the 'Configure' tab")
 
 # =============================================================================
 # PATHWAY ANALYSIS FUNCTIONS (Second Pipeline)
@@ -1058,7 +1385,7 @@ class RateLimitedSession:
                 if attempt == self.max_retries - 1:
                     logger.error(f"Request failed after {self.max_retries} attempts: {e}")
                     raise
-                time.sleep(2 ** attempt)  # Exponential backoff
+                time.sleep(2 ** attempt)
                 
     @safe_api_call
     def post(self, url, **kwargs):
@@ -1101,7 +1428,7 @@ def load_genes_from_any(uploaded_file) -> list[str]:
             
             seen, out = set(), []
             for v in vals:
-                if v and v not in seen and len(v) > 1:  # Filter out single characters
+                if v and v not in seen and len(v) > 1:
                     seen.add(v)
                     out.append(v)
                 if len(out) >= Config.MAX_GENES:
@@ -1127,7 +1454,6 @@ def load_genes_from_any(uploaded_file) -> list[str]:
             lower_map = {str(c).lower(): c for c in df.columns}
             target_col = None
             
-            # Priority order for column names
             for key in ("gene.symbol", "symbol", "gene_symbol", "gene", "geneid"):
                 if key in lower_map:
                     target_col = lower_map[key]
@@ -1170,7 +1496,7 @@ def ncbi_esearch_gene_ids(gene_symbol: str, organism_entrez: str) -> list[str]:
             db="gene",
             term=f"{gene_symbol}[Gene] AND {organism_entrez}[Organism]",
             retmode="xml",
-            retmax=5  # Limit results
+            retmax=5
         )
         record = Entrez.read(handle)
         handle.close()
@@ -1251,7 +1577,6 @@ def validate_opentargets_response(data: dict) -> bool:
     if not all(key in data for key in required_keys):
         return False
     
-    # Check for API errors
     if 'errors' in data and data['errors']:
         logger.error(f"OpenTargets API errors: {data['errors']}")
         return False
@@ -1377,7 +1702,7 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
-    """FIXED: Enhanced drug suggestions fetch with improved error handling and correct query"""
+    """Fixed: Enhanced drug suggestions fetch"""
     query = """
     query KnownDrugs($id: String!, $size: Int!) {
       target(ensemblId: $id) {
@@ -1408,24 +1733,16 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
     
     try:
         data = ot_query(query, {"id": ensembl_id, "size": size})
-        
-        # Debug: Log the response structure
-        logger.info(f"OpenTargets response for {ensembl_id}: {data.keys() if data else 'No data'}")
-        
         target_data = ((data or {}).get("data", {})).get("target", {})
         if not target_data:
-            logger.warning(f"No target data found for {ensembl_id}")
             return pd.DataFrame()
             
         known_drugs = target_data.get("knownDrugs", {})
         rows = known_drugs.get("rows", [])
         
-        logger.info(f"Found {len(rows)} drug rows for target {ensembl_id}")
-        
         if not rows:
             return pd.DataFrame()
 
-        # Process data
         out = []
         for r in rows:
             drug_obj = r.get("drug") or {}
@@ -1434,7 +1751,6 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
             therapeutic_areas = disease_obj.get("therapeuticAreas", [])
             ta_names = "; ".join([ta.get("name", "") for ta in therapeutic_areas if ta.get("name")])
             
-            # Handle phase conversion safely
             phase = r.get("phase")
             try:
                 phase_numeric = int(phase) if phase and phase.isdigit() else 0
@@ -1462,9 +1778,7 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
                 "max_phase_numeric": max_phase_numeric,
             })
         
-        result_df = pd.DataFrame(out)
-        logger.info(f"Processed {len(result_df)} drug entries for {ensembl_id}")
-        return result_df
+        return pd.DataFrame(out)
     
     except Exception as e:
         logger.error(f"Error fetching drugs for target {ensembl_id}: {e}")
@@ -1546,7 +1860,7 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
     return pd.DataFrame(results), pathway_to_genes
 
 def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
-    """Enhanced enrichment computation with better sorting - REMOVED Genes column"""
+    """Enhanced enrichment computation with better sorting"""
     if not pathway_to_genes:
         return pd.DataFrame(columns=["Pathway_ID", "Pathway_Name", "Count", "Gene_List"])
         
@@ -1580,7 +1894,7 @@ def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens")
                 logger.info(f"Mapped {g} to {hit.get('id')}")
             else:
                 logger.warning(f"No target found for {g}")
-            time.sleep(0.05)  # Rate limiting
+            time.sleep(0.05)
         except Exception as e:
             logger.error(f"Error mapping {g}: {e}")
     return g2t
@@ -1606,7 +1920,6 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
     
     if frames:
         combined = pd.concat(frames, ignore_index=True)
-        # Remove duplicates and sort by score
         combined = combined.drop_duplicates(subset=["gene", "disease_id"])
         combined = combined.sort_values("association_score", ascending=False)
         return combined
@@ -1614,7 +1927,7 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
     return pd.DataFrame(columns=["gene", "gene_symbol", "target", "disease_id", "disease_name", "association_score", "therapeutic_areas"])
 
 def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
-    """FIXED: Enhanced drug collection with better filtering and error handling"""
+    """Fixed: Enhanced drug collection with better filtering"""
     frames = []
     
     for g, tgt in gene_to_target.items():
@@ -1631,13 +1944,12 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
                 logger.info(f"Found {len(df)} drugs for {g}")
             else:
                 logger.info(f"No drugs found for {g}")
-            time.sleep(0.05)  # Rate limiting
+            time.sleep(0.05)
         except Exception as e:
             logger.error(f"Error collecting drugs for {g}: {e}")
     
     if frames:
         combined = pd.concat(frames, ignore_index=True)
-        # Remove duplicates
         combined = combined.drop_duplicates(subset=["gene", "drug_id", "disease_name"])
         logger.info(f"Total drugs collected: {len(combined)}")
         return combined
@@ -1645,34 +1957,410 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
     logger.warning("No drugs collected from any target")
     return pd.DataFrame()
 
-# Enhanced Plotly Theme
-def apply_plotly_dark_theme(fig: go.Figure) -> go.Figure:
-    """Apply consistent dark theme to Plotly figures"""
+def create_gene_disease_drug_network(df_diseases, df_drugs):
+    """Create a gene-disease-drug network visualization with distinct colors"""
+    
+    # Create network graph
+    G = nx.Graph()
+    
+    # Track unique nodes
+    gene_nodes = set()
+    disease_nodes = set()
+    drug_nodes = set()
+    
+    # Add gene-disease edges from disease associations
+    if not df_diseases.empty:
+        # Get top diseases by gene count
+        top_diseases = (
+            df_diseases.groupby('disease_name')
+            .agg({'gene': lambda x: len(set(x))})
+            .sort_values('gene', ascending=False)
+            .head(10)  # Top 10 diseases
+            .index.tolist()
+        )
+        
+        for _, row in df_diseases.iterrows():
+            if row['disease_name'] in top_diseases:
+                gene_id = f"Gene: {row['gene']}"
+                disease_id = f"Disease: {row['disease_name']}"
+                
+                # Add nodes
+                G.add_node(gene_id, type='gene', size=10)
+                G.add_node(disease_id, type='disease', size=15)
+                
+                # Add edge with weight based on association score
+                weight = float(row['association_score']) if row['association_score'] else 0.5
+                G.add_edge(gene_id, disease_id, weight=weight, type='gene-disease')
+                
+                gene_nodes.add(gene_id)
+                disease_nodes.add(disease_id)
+    
+    # Add drug-disease edges from drug data
+    if not df_drugs.empty and not df_diseases.empty:
+        # Get top drugs
+        top_drugs = df_drugs['drug_name'].value_counts().head(10).index.tolist()
+        
+        for _, row in df_drugs.iterrows():
+            if row['drug_name'] in top_drugs and row['disease_name']:
+                drug_id = f"Drug: {row['drug_name']}"
+                disease_id = f"Disease: {row['disease_name']}"
+                
+                # Add drug node
+                G.add_node(drug_id, type='drug', size=12)
+                G.add_edge(drug_id, disease_id, weight=1.0, type='drug-disease')
+                
+                drug_nodes.add(drug_id)
+    
+    # Check if we have enough nodes
+    if len(G.nodes()) < 3:
+        return None
+    
+    # Create positions using spring layout
+    pos = nx.spring_layout(G, k=2, iterations=50, seed=42)
+    
+    # Prepare edge traces
+    edge_traces = []
+    
+    # Gene-Disease edges (blue)
+    gene_disease_edges = [(u, v) for u, v, d in G.edges(data=True) if d.get('type') == 'gene-disease']
+    if gene_disease_edges:
+        edge_x_gd = []
+        edge_y_gd = []
+        for u, v in gene_disease_edges:
+            x0, y0 = pos[u]
+            x1, y1 = pos[v]
+            edge_x_gd.extend([x0, x1, None])
+            edge_y_gd.extend([y0, y1, None])
+        
+        edge_trace_gd = go.Scatter(
+            x=edge_x_gd, y=edge_y_gd,
+            line=dict(width=1.5, color='rgba(59, 130, 246, 0.6)'),  # Blue
+            hoverinfo='none',
+            mode='lines',
+            name='Gene-Disease'
+        )
+        edge_traces.append(edge_trace_gd)
+    
+    # Drug-Disease edges (green)
+    drug_disease_edges = [(u, v) for u, v, d in G.edges(data=True) if d.get('type') == 'drug-disease']
+    if drug_disease_edges:
+        edge_x_dd = []
+        edge_y_dd = []
+        for u, v in drug_disease_edges:
+            x0, y0 = pos[u]
+            x1, y1 = pos[v]
+            edge_x_dd.extend([x0, x1, None])
+            edge_y_dd.extend([y0, y1, None])
+        
+        edge_trace_dd = go.Scatter(
+            x=edge_x_dd, y=edge_y_dd,
+            line=dict(width=1.5, color='rgba(16, 185, 129, 0.6)'),  # Green
+            hoverinfo='none',
+            mode='lines',
+            name='Drug-Disease'
+        )
+        edge_traces.append(edge_trace_dd)
+    
+    # Prepare node traces
+    node_traces = []
+    
+    # Gene nodes (blue)
+    gene_node_x = [pos[node][0] for node in gene_nodes if node in pos]
+    gene_node_y = [pos[node][1] for node in gene_nodes if node in pos]
+    gene_node_text = [node.replace('Gene: ', '') for node in gene_nodes if node in pos]
+    
+    if gene_node_x:
+        gene_trace = go.Scatter(
+            x=gene_node_x, y=gene_node_y,
+            mode='markers+text',
+            hoverinfo='text',
+            text=gene_node_text,
+            textposition="top center",
+            hovertext=[f"Gene: {text}" for text in gene_node_text],
+            marker=dict(
+                size=15,
+                color='#3b82f6',  # Blue
+                line=dict(width=2, color='white')
+            ),
+            name='Genes'
+        )
+        node_traces.append(gene_trace)
+    
+    # Disease nodes (red)
+    disease_node_x = [pos[node][0] for node in disease_nodes if node in pos]
+    disease_node_y = [pos[node][1] for node in disease_nodes if node in pos]
+    disease_node_text = [node.replace('Disease: ', '') for node in disease_nodes if node in pos]
+    
+    if disease_node_x:
+        disease_trace = go.Scatter(
+            x=disease_node_x, y=disease_node_y,
+            mode='markers+text',
+            hoverinfo='text',
+            text=disease_node_text,
+            textposition="top center",
+            hovertext=[f"Disease: {text}" for text in disease_node_text],
+            marker=dict(
+                size=20,
+                color='#ef4444',  # Red
+                line=dict(width=2, color='white'),
+                symbol='diamond'
+            ),
+            name='Diseases'
+        )
+        node_traces.append(disease_trace)
+    
+    # Drug nodes (green)
+    drug_node_x = [pos[node][0] for node in drug_nodes if node in pos]
+    drug_node_y = [pos[node][1] for node in drug_nodes if node in pos]
+    drug_node_text = [node.replace('Drug: ', '') for node in drug_nodes if node in pos]
+    
+    if drug_node_x:
+        drug_trace = go.Scatter(
+            x=drug_node_x, y=drug_node_y,
+            mode='markers+text',
+            hoverinfo='text',
+            text=drug_node_text,
+            textposition="top center",
+            hovertext=[f"Drug: {text}" for text in drug_node_text],
+            marker=dict(
+                size=18,
+                color='#10b981',  # Green
+                line=dict(width=2, color='white'),
+                symbol='square'
+            ),
+            name='Drugs'
+        )
+        node_traces.append(drug_trace)
+    
+    # Create figure
+    fig = go.Figure(data=edge_traces + node_traces)
+    
     fig.update_layout(
-        paper_bgcolor="#1a1f2e",
-        plot_bgcolor="#252b3a",
-        font_color="#ffffff",
-        font_family="Inter, sans-serif",
-        title_font_size=16,
-        title_font_color="#00d4aa",
+        title=dict(
+            text='Gene-Disease-Drug Network',
+            x=0.5,
+            font=dict(size=20, color='#3b82f6')
+        ),
+        showlegend=True,
         legend=dict(
-            bgcolor="rgba(26, 31, 46, 0.8)",
-            bordercolor="#4a5568",
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01,
+            bgcolor='rgba(255, 255, 255, 0.9)',
+            bordercolor='#e2e8f0',
             borderwidth=1
         ),
-        margin=dict(l=50, r=50, t=50, b=50)
+        hovermode='closest',
+        margin=dict(b=20, l=5, r=5, t=50),
+        annotations=[
+            dict(
+                text="Blue: Genes | Red: Diseases | Green: Drugs",
+                showarrow=False,
+                xref="paper", yref="paper",
+                x=0.5, y=-0.05,
+                xanchor='center',
+                font=dict(color='#64748b', size=12)
+            )
+        ],
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        height=600
+    )
+    
+    return fig
+
+def create_gene_pathway_interaction_network(pathway_to_genes, kegg_org_prefix):
+    """Create a gene-pathway interaction network visualization"""
+    
+    if not pathway_to_genes:
+        return None
+    
+    # Get top pathways by gene count
+    top_pathways = sorted(
+        pathway_to_genes.items(), 
+        key=lambda x: len(x[1]), 
+        reverse=True
+    )[:8]  # Top 8 pathways
+    
+    # Create network graph
+    G = nx.Graph()
+    
+    # Track nodes
+    gene_nodes = set()
+    pathway_nodes = set()
+    
+    # Add nodes and edges
+    for pathway_id, genes in top_pathways:
+        pathway_name = kegg_pathway_name(pathway_id) or pathway_id.replace("path:", "")
+        # Shorten pathway name for display
+        if len(pathway_name) > 30:
+            pathway_name = pathway_name[:27] + "..."
+        
+        pathway_node = f"Pathway: {pathway_name}"
+        
+        # Add pathway node
+        G.add_node(pathway_node, type='pathway', size=25)
+        pathway_nodes.add(pathway_node)
+        
+        # Add gene nodes and edges
+        for gene in list(genes)[:15]:  # Limit to 15 genes per pathway
+            gene_node = f"Gene: {gene}"
+            G.add_node(gene_node, type='gene', size=15)
+            G.add_edge(gene_node, pathway_node, weight=1.0)
+            
+            gene_nodes.add(gene_node)
+    
+    # Check if we have enough nodes
+    if len(G.nodes()) < 3:
+        return None
+    
+    # Create positions using spring layout
+    pos = nx.spring_layout(G, k=1.5, iterations=100, seed=42)
+    
+    # Prepare edge traces
+    edge_x = []
+    edge_y = []
+    for edge in G.edges():
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
+        edge_x.extend([x0, x1, None])
+        edge_y.extend([y0, y1, None])
+    
+    edge_trace = go.Scatter(
+        x=edge_x, y=edge_y,
+        line=dict(width=1.5, color='rgba(148, 163, 184, 0.6)'),  # Gray
+        hoverinfo='none',
+        mode='lines'
+    )
+    
+    # Prepare node traces
+    node_traces = []
+    
+    # Gene nodes (blue)
+    gene_node_list = [node for node in gene_nodes if node in pos]
+    if gene_node_list:
+        gene_node_x = [pos[node][0] for node in gene_node_list]
+        gene_node_y = [pos[node][1] for node in gene_node_list]
+        gene_node_text = [node.replace('Gene: ', '') for node in gene_node_list]
+        
+        gene_trace = go.Scatter(
+            x=gene_node_x, y=gene_node_y,
+            mode='markers+text',
+            hoverinfo='text',
+            text=gene_node_text,
+            textposition="middle center",
+            hovertext=[f"Gene: {text}" for text in gene_node_text],
+            marker=dict(
+                size=15,
+                color='#3b82f6',  # Blue
+                line=dict(width=2, color='white'),
+                symbol='circle'
+            ),
+            name='Genes'
+        )
+        node_traces.append(gene_trace)
+    
+    # Pathway nodes (green)
+    pathway_node_list = [node for node in pathway_nodes if node in pos]
+    if pathway_node_list:
+        pathway_node_x = [pos[node][0] for node in pathway_node_list]
+        pathway_node_y = [pos[node][1] for node in pathway_node_list]
+        pathway_node_text = [node.replace('Pathway: ', '') for node in pathway_node_list]
+        
+        pathway_trace = go.Scatter(
+            x=pathway_node_x, y=pathway_node_y,
+            mode='markers+text',
+            hoverinfo='text',
+            text=pathway_node_text,
+            textposition="middle center",
+            hovertext=[f"Pathway: {text}" for text in pathway_node_text],
+            marker=dict(
+                size=25,
+                color='#10b981',  # Green
+                line=dict(width=2, color='white'),
+                symbol='diamond'
+            ),
+            name='Pathways'
+        )
+        node_traces.append(pathway_trace)
+    
+    # Create figure
+    fig = go.Figure(data=[edge_trace] + node_traces)
+    
+    fig.update_layout(
+        title=dict(
+            text='Gene-Pathway Interaction Network',
+            x=0.5,
+            font=dict(size=20, color='#3b82f6')
+        ),
+        showlegend=True,
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01,
+            bgcolor='rgba(255, 255, 255, 0.9)',
+            bordercolor='#e2e8f0',
+            borderwidth=1
+        ),
+        hovermode='closest',
+        margin=dict(b=20, l=5, r=5, t=50),
+        annotations=[
+            dict(
+                text="Blue: Genes | Green: Pathways",
+                showarrow=False,
+                xref="paper", yref="paper",
+                x=0.5, y=-0.05,
+                xanchor='center',
+                font=dict(color='#64748b', size=12)
+            )
+        ],
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        height=600
+    )
+    
+    return fig
+
+# Light Plotly Theme
+def apply_plotly_light_theme(fig: go.Figure) -> go.Figure:
+    """Apply consistent light theme to Plotly figures"""
+    fig.update_layout(
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        font_color='#1e293b',
+        font_family="Inter, sans-serif",
+        title_font_size=18,
+        title_font_color='#3b82f6',
+        legend=dict(
+            bgcolor='rgba(255, 255, 255, 0.9)',
+            bordercolor='#e2e8f0',
+            borderwidth=1,
+            font=dict(color='#1e293b')
+        ),
+        margin=dict(l=50, r=50, t=50, b=50),
+        hoverlabel=dict(
+            bgcolor='white',
+            font_color='#1e293b',
+            bordercolor='#e2e8f0'
+        )
     )
     
     # Update axes
     fig.update_xaxes(
-        gridcolor="#4a5568",
-        linecolor="#4a5568",
-        tickcolor="#ffffff"
+        gridcolor='#f1f5f9',
+        linecolor='#e2e8f0',
+        linewidth=2,
+        tickcolor='#94a3b8',
+        title_font=dict(color='#64748b')
     )
     fig.update_yaxes(
-        gridcolor="#4a5568",
-        linecolor="#4a5568",
-        tickcolor="#ffffff"
+        gridcolor='#f1f5f9',
+        linecolor='#e2e8f0',
+        linewidth=2,
+        tickcolor='#94a3b8',
+        title_font=dict(color='#64748b')
     )
     
     return fig
@@ -1687,9 +2375,8 @@ def validate_email(email: str) -> bool:
 
 def sanitize_gene_symbol(gene: str) -> str:
     """Sanitize gene symbols"""
-    # Remove potentially dangerous characters
     sanitized = ''.join(c for c in gene.upper() if c.isalnum() or c in ['-', '_'])
-    return sanitized[:50]  # Limit length
+    return sanitized[:50]
 
 def validate_gene_list(genes: List[str]) -> Tuple[bool, str]:
     """Validate gene list before processing"""
@@ -1699,7 +2386,6 @@ def validate_gene_list(genes: List[str]) -> Tuple[bool, str]:
     if len(genes) > Config.MAX_GENES:
         return False, f"Too many genes (max {Config.MAX_GENES})"
     
-    # Check for invalid characters
     invalid_chars = set()
     for gene in genes:
         sanitized = sanitize_gene_symbol(gene)
@@ -1718,162 +2404,176 @@ def run_pathway_analysis(genes_from_input=None):
     if 'analysis_results' not in st.session_state:
         st.session_state.analysis_results = {}
     
-    # Enhanced sidebar
+    # Sidebar content
     with st.sidebar:
-        st.markdown('<div class="sidebar-title">🧬 BioContext Analytics</div>', unsafe_allow_html=True)
-        st.markdown('<div class="sidebar-tip">Comprehensive gene-to-therapy pipeline which takes DEGs as an input and find pathway enrichment, disease relation and suggest drugs</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sidebar-title">💊 Pathway & Drug Analyzer</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sidebar-tip">Complete gene-to-therapy pipeline for functional interpretation and drug discovery</div>', unsafe_allow_html=True)
         
         st.markdown("---")
         
-        st.markdown("**💡 Tips & Best Practices**")
+        st.markdown("**📊 Analysis Pipeline**")
         st.markdown("""
-        - **Gene Lists**: Keep under 100 genes for optimal performance
-        - **Rate Limits**: Built-in throttling prevents API timeouts  
-        - **Caching**: Results cached for 1 hour to improve speed
-        - **Formats**: Supports CSV, TSV, XLSX, and plain text
-        - **Columns**: Looks for 'Gene.symbol', 'Symbol', or first column
+        1. **Gene Mapping** → NCBI annotations
+        2. **Pathway Analysis** → KEGG enrichment  
+        3. **Disease Links** → OpenTargets associations
+        4. **Drug Discovery** → Therapeutic compounds
+        5. **Visualization** → Interactive networks
         """)
         
         st.markdown("---")
         
-        st.markdown("**🔗 Data Sources**")
-        st.markdown("""
-        - **NCBI**: Gene annotations and descriptions
-        - **KEGG**: Pathway enrichment analysis  
-        - **OpenTargets**: Disease associations and drug data
-        """)
-        
-        st.markdown("---")
-        
-        with st.expander("📊 Analysis Pipeline"):
-            st.markdown("""
-            1. **Gene Mapping**: NCBI gene database lookup
-            2. **Pathway Analysis**: KEGG pathway enrichment
-            3. **Disease Links**: OpenTargets association scores
-            4. **Drug Discovery**: Therapeutic compound suggestions
-            5. **Visualization**: Interactive network and charts
-            """)
+        st.markdown("**⚡ Performance Tips**")
+        st.markdown('<div class="sidebar-tip">• Keep gene lists under 100 for optimal speed<br>• Results cached for 1 hour<br>• Built-in rate limiting prevents API timeouts</div>', unsafe_allow_html=True)
     
-    # If genes are provided from DEGs analysis, skip input section
+    # Main content
+    st.markdown("""
+    <div class="hero">
+        <div class="hero-content">
+            <h1>💊 Pathway & Drug Analyzer</h1>
+            <p>Discover enriched pathways, disease associations, and potential therapeutic compounds for your gene list. 
+            Perfect for interpreting DEG results or analyzing custom gene sets.</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # If genes are provided from DEGs analysis
     if genes_from_input:
-        st.info(f"🎯 Using {len(genes_from_input)} genes from DEGs analysis (top 10 upregulated + top 10 downregulated)")
+        st.success(f"🎯 Using {len(genes_from_input)} genes from DEGs analysis")
         run_pathway_analysis_with_genes(genes_from_input)
         return
     
     # Input Section
-    st.title("💊 Pathway & Drug Analyzer")
-    st.markdown("""This tool performs pathway enrichment analysis and drug discovery based on the given DEGs input.""")
-
-    # Email input for NCBI
-    email = st.text_input(
-        "📧 NCBI Entrez Email (Required)", 
-        value="", 
-        help="Required by NCBI for API access. Your email helps them contact you if there are issues.",
-        placeholder="your.email@example.com"
-    )
+    st.markdown('<div class="section-title">Input Configuration</div>', unsafe_allow_html=True)
     
-    # Validate email
-    if email and not validate_email(email):
-        st.error("❌ Please enter a valid email address")
-        email = ""
+    # Organism and email
+    col1, col2 = st.columns(2)
     
-    if email:
-        Entrez.email = email
+    with col1:
+        email = st.text_input(
+            "📧 NCBI Email Address",
+            placeholder="your.email@example.com",
+            help="Required for NCBI API access"
+        )
     
-    # Organism selection
-    organisms = {
-        "🧑 Homo sapiens (Human)": {"entrez": "Homo sapiens", "kegg": "hsa"},
-        "🐭 Mus musculus (Mouse)": {"entrez": "Mus musculus", "kegg": "mmu"},
-        "🐀 Rattus norvegicus (Rat)": {"entrez": "Rattus norvegicus", "kegg": "rno"},
-    }
+    with col2:
+        organisms = {
+            "🧑 Human (Homo sapiens)": {"entrez": "Homo sapiens", "kegg": "hsa"},
+            "🐭 Mouse (Mus musculus)": {"entrez": "Mus musculus", "kegg": "mmu"},
+            "🐀 Rat (Rattus norvegicus)": {"entrez": "Rattus norvegicus", "kegg": "rno"},
+        }
+        org_label = st.selectbox("🔬 Organism", list(organisms.keys()), index=0)
+        organism_entrez = organisms[org_label]["entrez"]
+        kegg_org_prefix = organisms[org_label]["kegg"]
     
-    org_label = st.selectbox("🔬 Select Organism", list(organisms.keys()), index=0)
-    organism_entrez = organisms[org_label]["entrez"]
-    kegg_org_prefix = organisms[org_label]["kegg"]
+    # Gene input methods
+    st.markdown("### 🧬 Gene Input Methods")
     
-    # File upload and manual input
-    col_upload, col_manual = st.columns([1, 1])
+    tab_upload, tab_manual = st.tabs(["📁 Upload File", "✏️ Manual Input"])
     
-    with col_upload:
+    genes_from_user = []
+    
+    with tab_upload:
         uploaded = st.file_uploader(
-            "📁 Upload Gene List", 
+            "Upload gene list file",
             type=["csv", "tsv", "txt", "xlsx"],
-            help="Supports CSV, TSV, XLSX, and plain text files. Looks for 'Gene.symbol' or 'Symbol' columns."
+            help="Supports CSV, TSV, XLSX, and text files",
+            label_visibility="collapsed"
         )
+        
+        if uploaded is not None:
+            genes_from_user = load_genes_from_any(uploaded)
+            if genes_from_user:
+                st.success(f"✅ Loaded {len(genes_from_user)} genes from file")
     
-    with col_manual:
+    with tab_manual:
         manual_input = st.text_area(
-            "✏️ Or Paste Gene Symbols",
-            placeholder="TP53, BRCA1, EGFR, MYC, PIK3CA\nAKT1, KRAS, PTEN...",
-            height=100,
-            help="Enter gene symbols separated by commas, spaces, or new lines"
+            "Enter gene symbols (one per line or comma-separated)",
+            placeholder="TP53\nBRCA1\nEGFR\nMYC\nPIK3CA",
+            height=150,
+            label_visibility="collapsed"
         )
+        
+        if manual_input.strip():
+            genes_from_user = (
+                pd.Series([manual_input])
+                .str.replace(r"[,;|\t\n ]+", "\n", regex=True)
+                .str.split("\n").explode().str.strip().str.upper()
+            )
+            genes_from_user = [g for g in genes_from_user.tolist() if g and len(g) > 1][:Config.MAX_GENES]
+            if genes_from_user:
+                st.success(f"✅ Parsed {len(genes_from_user)} genes from input")
     
     # Drug filtering options
-    st.markdown("---")
-    st.header("**Drug Analysis Filters**")
+    st.markdown("### ⚙️ Analysis Filters")
     
-    col_phase, col_type = st.columns([1, 1])
+    col_filter1, col_filter2 = st.columns(2)
     
-    with col_phase:
+    with col_filter1:
         opt_only_phase4 = st.checkbox(
-            "✅ Show only approved drugs (Phase 4+)",
-            value=False,
+            "Show only approved drugs (Phase 4+)",
+            value=True,
             help="Filter to show only drugs that have completed clinical trials"
         )
     
-    with col_type:
+    with col_filter2:
         show_investigational = st.checkbox(
-            "🧪 Include investigational compounds",
+            "Include investigational compounds",
             value=False,
             help="Include drugs in earlier clinical trial phases"
         )
     
-    # Process input
-    genes_from_user: list[str] = []
+    # Validate and run
+    st.markdown("---")
     
-    if manual_input.strip():
-        genes_from_user = (
-            pd.Series([manual_input])
-            .str.replace(r"[,;|\t\n ]+", "\n", regex=True)
-            .str.split("\n").explode().str.strip().str.upper()
-        )
-        genes_from_user = [g for g in genes_from_user.tolist() if g and len(g) > 1][:Config.MAX_GENES]
-        
-    elif uploaded is not None:
-        genes_from_user = load_genes_from_any(uploaded)
-    
-    # Validate gene list
     if genes_from_user:
+        # Validate gene list
         is_valid, validation_msg = validate_gene_list(genes_from_user)
+        
         if not is_valid:
             st.warning(f"⚠️ {validation_msg}")
             if len(genes_from_user) > Config.MAX_GENES:
                 genes_from_user = genes_from_user[:Config.MAX_GENES]
                 st.info(f"Using first {Config.MAX_GENES} genes")
+        
+        # Show summary
+        col_sum1, col_sum2, col_sum3 = st.columns(3)
+        
+        with col_sum1:
+            st.metric("Genes Ready", len(genes_from_user))
+        
+        with col_sum2:
+            status = "✅ Valid" if is_valid else "⚠️ Needs review"
+            st.metric("Validation", status)
+        
+        with col_sum3:
+            if email:
+                st.metric("Email", "✅ Provided")
+            else:
+                st.metric("Email", "❌ Required")
+        
+        # Run button
+        col_btn1, col_btn2 = st.columns([1, 2])
+        
+        with col_btn1:
+            run_analysis = st.button(
+                "🚀 Start Analysis", 
+                type="primary", 
+                disabled=(not genes_from_user or not email),
+                use_container_width=True
+            )
+        
+        with col_btn2:
+            if not email:
+                st.warning("Please provide your NCBI email address")
+            elif not genes_from_user:
+                st.info("Please provide gene symbols")
     
-    # Analysis button
-    st.markdown("---")
+    else:
+        st.info("👆 Please provide gene symbols using one of the input methods above")
+        run_analysis = False
     
-    col_btn, col_info = st.columns([1, 2])
-    
-    with col_btn:
-        run_analysis = st.button(
-            "🚀 Start Analysis", 
-            type="primary", 
-            disabled=(not genes_from_user or not email),
-            use_container_width=True
-        )
-    
-    with col_info:
-        if genes_from_user:
-            st.success(f"✅ {len(genes_from_user)} genes ready for analysis")
-        elif not email:
-            st.warning("⚠️ Please provide your email address")
-        else:
-            st.info("📝 Please upload a file or paste gene symbols")
-    
-    if run_analysis:
+    if run_analysis and email:
+        Entrez.email = email
         run_pathway_analysis_with_genes(genes_from_user, organism_entrez, kegg_org_prefix, 
                                        opt_only_phase4, show_investigational)
 
@@ -1887,42 +2587,35 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
     if kegg_org_prefix is None:
         kegg_org_prefix = "hsa"
     
-    st.markdown("---")
-    
-    # Create tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    # Create tabs for different analysis sections
+    tab_meta, tab_path, tab_disease, tab_drug, tab_viz = st.tabs([
         "📇 Gene Metadata", 
         "📊 Pathway Enrichment", 
-        "🧬 Disease Associations", 
-        "💊 Drug Suggestions", 
-        "🌐 Network Visualization"
+        "🧬 Disease Links", 
+        "💊 Drug Discovery", 
+        "🌐 Network View"
     ])
     
-    # Step 1: Gene Metadata & KEGG
-    with tab1:
-        st.markdown('<div class="section-title"><span class="icon">📇</span>Gene Annotations & KEGG Pathways</div>', unsafe_allow_html=True)
+    # Gene Metadata
+    with tab_meta:
+        st.markdown('<div class="section-title">Gene Annotations & Metadata</div>', unsafe_allow_html=True)
         
         if 'metadata' not in st.session_state.analysis_results:
-            progress_container = st.container()
-            with progress_container:
-                progress_bar = st.progress(0.0)
-                status_text = st.empty()
-                
-            with st.spinner("🔍 Fetching gene metadata and pathway information..."):
+            with st.spinner("🔍 Fetching gene metadata and pathways..."):
+                progress_bar = st.progress(0)
                 df_meta, pathway_to_genes = fetch_gene_metadata_and_kegg(
                     genes_from_input, organism_entrez, kegg_org_prefix, progress_bar
                 )
-                
+                progress_bar.empty()
+            
             st.session_state.analysis_results['metadata'] = df_meta
             st.session_state.analysis_results['pathways'] = pathway_to_genes
-            
-            progress_container.empty()
         else:
             df_meta = st.session_state.analysis_results['metadata']
             pathway_to_genes = st.session_state.analysis_results['pathways']
         
         if not df_meta.empty:
-            # Summary metrics
+            # Summary cards
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
@@ -1937,9 +2630,8 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 total_pathways = len(pathway_to_genes)
                 st.metric("Unique Pathways", total_pathways)
             
-            st.markdown("---")
-            
-            # Display results table
+            # Data table
+            st.markdown("### Gene Details")
             display_df = df_meta.copy()
             display_df.insert(0, "#", range(1, len(display_df) + 1))
             
@@ -1948,26 +2640,27 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 use_container_width=True, 
                 hide_index=True,
                 column_config={
-                    "Description": st.column_config.TextColumn(width="medium"),
+                    "Description": st.column_config.TextColumn(width="large"),
                     "KEGG_Pathways": st.column_config.TextColumn(width="large"),
                     "Status": st.column_config.TextColumn(width="small")
                 }
             )
             
-            # Download button
+            # Download
             csv_data = df_meta.to_csv(index=False).encode("utf-8")
             st.download_button(
-                "⬇️ Download Gene Metadata",
+                "📥 Download Gene Metadata",
                 data=csv_data,
-                file_name=f"gene_metadata_{organism_entrez.replace(' ', '_').lower()}.csv",
-                mime="text/csv"
+                file_name="gene_metadata.csv",
+                mime="text/csv",
+                use_container_width=True
             )
         else:
-            st.error("❌ No gene metadata could be retrieved. Please check your gene symbols and try again.")
+            st.error("❌ No gene metadata could be retrieved")
     
-    # Step 2: Pathway Enrichment
-    with tab2:
-        st.markdown('<div class="section-title"><span class="icon">📊</span>KEGG Pathway Enrichment</div>', unsafe_allow_html=True)
+    # Pathway Enrichment
+    with tab_path:
+        st.markdown('<div class="section-title">Pathway Enrichment Analysis</div>', unsafe_allow_html=True)
         
         if 'pathways' in st.session_state.analysis_results:
             pathway_to_genes = st.session_state.analysis_results['pathways']
@@ -1976,7 +2669,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 df_enrich = compute_enrichment_counts_only(pathway_to_genes)
             
             if not df_enrich.empty:
-                # Summary metrics
+                # Summary
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
@@ -1988,9 +2681,8 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     avg_genes = df_enrich['Count'].mean() if not df_enrich.empty else 0
                     st.metric("Avg Genes/Pathway", f"{avg_genes:.1f}")
                 
-                st.markdown("---")
-                
-                # Display enrichment table - REMOVED Genes column
+                # Data table
+                st.markdown("### Enriched Pathways")
                 display_enrich = df_enrich[['Pathway_ID', 'Pathway_Name', 'Count', 'Gene_List']].copy()
                 display_enrich.insert(0, "#", range(1, len(display_enrich) + 1))
                 
@@ -2007,8 +2699,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 
                 # Visualization
                 if len(df_enrich) > 0:
-                    st.markdown("---")
-                    st.markdown("**📊 Top Pathways Visualization**")
+                    st.markdown("### 📊 Top Pathways Visualization")
                     
                     top_pathways = df_enrich.head(15)
                     
@@ -2024,25 +2715,26 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     )
                     
                     fig.update_layout(height=600, yaxis={'categoryorder':'total ascending'})
-                    fig = apply_plotly_dark_theme(fig)
+                    fig = apply_plotly_light_theme(fig)
                     
                     st.plotly_chart(fig, use_container_width=True)
                 
-                # Download button - also remove Genes column from download
+                # Download
                 download_enrich = df_enrich[['Pathway_ID', 'Pathway_Name', 'Count', 'Gene_List']].copy()
                 csv_data = download_enrich.to_csv(index=False).encode("utf-8")
                 st.download_button(
-                    "⬇️ Download Enrichment Results",
+                    "📥 Download Pathway Results",
                     data=csv_data,
-                    file_name="pathway_enrichment_analysis.csv",
-                    mime="text/csv"
+                    file_name="pathway_enrichment.csv",
+                    mime="text/csv",
+                    use_container_width=True
                 )
             else:
-                st.info("ℹ️ No pathway enrichment found for the provided genes.")
+                st.info("ℹ️ No pathway enrichment found")
     
-    # Step 3: Disease Associations
-    with tab3:
-        st.markdown('<div class="section-title"><span class="icon">🧬</span>Disease Associations</div>', unsafe_allow_html=True)
+    # Disease Associations
+    with tab_disease:
+        st.markdown('<div class="section-title">Disease Associations</div>', unsafe_allow_html=True)
         
         if 'diseases' not in st.session_state.analysis_results:
             with st.spinner("🔍 Mapping genes to targets and fetching disease associations..."):
@@ -2056,7 +2748,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
             df_diseases = st.session_state.analysis_results['diseases']
         
         if not df_diseases.empty:
-            # Summary metrics
+            # Summary
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
@@ -2072,8 +2764,6 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 high_conf = len(df_diseases[df_diseases['association_score'] > 0.5])
                 st.metric("High Confidence (>0.5)", high_conf)
             
-            st.markdown("---")
-            
             # Disease summary
             disease_summary = (
                 df_diseases.groupby(['disease_id', 'disease_name', 'therapeutic_areas'])
@@ -2088,7 +2778,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
             disease_summary.columns = ['Disease_ID', 'Disease_Name', 'Therapeutic_Areas', 'Gene_Count', 'Max_Score', 'Avg_Score']
             disease_summary = disease_summary.sort_values(['Gene_Count', 'Max_Score'], ascending=[False, False])
             
-            # Display disease summary
+            # Display
             display_diseases = disease_summary.copy()
             display_diseases.insert(0, "#", range(1, len(display_diseases) + 1))
             
@@ -2106,8 +2796,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
             
             # Visualization
             if len(disease_summary) > 0:
-                st.markdown("---")
-                st.markdown("**🎯 Top Disease Associations**")
+                st.markdown("### 🎯 Disease Association Network")
                 
                 top_diseases = disease_summary.head(20)
                 
@@ -2122,47 +2811,51 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                         "Gene_Count": "Number of Associated Genes",
                         "Max_Score": "Maximum Association Score",
                         "Avg_Score": "Average Association Score"
-                    }
+                    },
+                    color="Gene_Count",
+                    color_continuous_scale="viridis"
                 )
                 
-                fig = apply_plotly_dark_theme(fig)
+                fig = apply_plotly_light_theme(fig)
                 st.plotly_chart(fig, use_container_width=True)
             
-            # Download buttons
+            # Download
             col_dl1, col_dl2 = st.columns(2)
             
             with col_dl1:
                 csv_detailed = df_diseases.to_csv(index=False).encode("utf-8")
                 st.download_button(
-                    "⬇️ Download Detailed Associations",
+                    "📥 Download Detailed Associations",
                     data=csv_detailed,
-                    file_name="disease_associations_detailed.csv",
-                    mime="text/csv"
+                    file_name="disease_associations.csv",
+                    mime="text/csv",
+                    use_container_width=True
                 )
             
             with col_dl2:
                 csv_summary = disease_summary.to_csv(index=False).encode("utf-8")
                 st.download_button(
-                    "⬇️ Download Disease Summary",
+                    "📥 Download Disease Summary",
                     data=csv_summary,
-                    file_name="disease_associations_summary.csv",
-                    mime="text/csv"
+                    file_name="disease_summary.csv",
+                    mime="text/csv",
+                    use_container_width=True
                 )
         else:
-            st.info("ℹ️ No disease associations found. This may occur with non-human genes or if the genes are not well-characterized.")
+            st.info("ℹ️ No disease associations found")
     
-    # Step 4: Drug Suggestions - FIXED with corrected Avg Phase calculation
-    with tab4:
-        st.markdown('<div class="section-title"><span class="icon">💊</span>Therapeutic Drug Suggestions</div>', unsafe_allow_html=True)
+    # Drug Suggestions
+    with tab_drug:
+        st.markdown('<div class="section-title">Therapeutic Drug Discovery</div>', unsafe_allow_html=True)
         
         if 'drugs' not in st.session_state.analysis_results:
             if 'gene_to_target' in st.session_state.analysis_results:
                 gene_to_target = st.session_state.analysis_results['gene_to_target']
-                with st.spinner("💊 Collecting drug suggestions from OpenTargets..."):
+                with st.spinner("💊 Collecting drug suggestions..."):
                     df_drugs = collect_drug_suggestions(gene_to_target)
                 st.session_state.analysis_results['drugs'] = df_drugs
             else:
-                st.error("❌ Gene-to-target mapping required. Please complete the Disease Associations step first.")
+                st.error("❌ Complete disease association step first")
                 df_drugs = pd.DataFrame()
         else:
             df_drugs = st.session_state.analysis_results['drugs']
@@ -2171,30 +2864,25 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
             # Apply filters
             filtered_drugs = df_drugs.copy()
             
-            # Debug info
-            st.markdown(f"**📊 Found {len(filtered_drugs)} total drug entries**")
+            st.markdown(f"**Found {len(filtered_drugs)} total drug entries**")
             
             if opt_only_phase4:
-                before_filter = len(filtered_drugs)
                 filtered_drugs = filtered_drugs[
                     (filtered_drugs['phase_numeric'] >= 4) | 
                     (filtered_drugs['max_phase_numeric'] >= 4)
                 ]
-                st.markdown(f"**🔍 Phase 4+ filter: {before_filter} → {len(filtered_drugs)} entries**")
             
             if not show_investigational:
-                before_filter = len(filtered_drugs)
                 filtered_drugs = filtered_drugs[
                     filtered_drugs['status'] != 'Investigational'
                 ]
-                st.markdown(f"**🔍 Non-investigational filter: {before_filter} → {len(filtered_drugs)} entries**")
             
             if not filtered_drugs.empty:
-                # FIXED: Correct Avg Phase calculation - only consider valid phases > 0
+                # Calculate metrics
                 valid_phases = filtered_drugs[filtered_drugs['phase_numeric'] > 0]['phase_numeric']
                 avg_phase = valid_phases.mean() if len(valid_phases) > 0 else 0
                 
-                # Summary metrics with CORRECTED Avg Phase
+                # Summary
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
@@ -2204,21 +2892,17 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     unique_targets = filtered_drugs['gene'].nunique()
                     st.metric("Targeted Genes", unique_targets)
                 with col3:
-                    # CORRECTED: Show actual average phase
                     st.metric("Avg Phase", f"{avg_phase:.1f}")
                 with col4:
                     approved_drugs = len(filtered_drugs[filtered_drugs['phase_numeric'] >= 4])
                     st.metric("Approved Drugs", approved_drugs)
                 
-                st.markdown("---")
-                
-                # Create display dataframe without phase_numeric and max_phase_numeric columns
+                # Data table
                 display_columns = [
                     'gene', 'gene_symbol', 'drug_id', 'drug_name', 'drug_type', 
                     'phase', 'status', 'max_phase', 'moa', 'disease_name', 'therapeutic_areas'
                 ]
                 
-                # Filter to only include columns that exist in the dataframe
                 available_columns = [col for col in display_columns if col in filtered_drugs.columns]
                 display_drugs = filtered_drugs[available_columns].copy()
                 display_drugs.insert(0, "#", range(1, len(display_drugs) + 1))
@@ -2229,22 +2913,21 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     column_config={
                         "#": st.column_config.NumberColumn(width="small"),
                         "gene": st.column_config.TextColumn("Gene", width="small"),
-                        "gene_symbol": st.column_config.TextColumn("Gene Symbol", width="small"),
+                        "gene_symbol": st.column_config.TextColumn("Symbol", width="small"),
                         "drug_name": st.column_config.TextColumn("Drug Name", width="medium"),
-                        "drug_type": st.column_config.TextColumn("Drug Type", width="small"),
+                        "drug_type": st.column_config.TextColumn("Type", width="small"),
                         "phase": st.column_config.TextColumn("Phase", width="small"),
                         "status": st.column_config.TextColumn("Status", width="small"),
                         "max_phase": st.column_config.TextColumn("Max Phase", width="small"),
-                        "moa": st.column_config.TextColumn("Mechanism of Action", width="large"),
+                        "moa": st.column_config.TextColumn("Mechanism", width="large"),
                         "disease_name": st.column_config.TextColumn("Disease", width="medium"),
-                        "therapeutic_areas": st.column_config.TextColumn("Therapeutic Areas", width="medium"),
+                        "therapeutic_areas": st.column_config.TextColumn("Areas", width="medium"),
                     }
                 )
                 
                 # Visualization
                 if len(filtered_drugs) > 0:
-                    st.markdown("---")
-                    st.markdown("**📈 Drug Development Phase Distribution**")
+                    st.markdown("### 📈 Drug Development Phase Distribution")
                     
                     phase_counts = filtered_drugs['phase'].value_counts().reset_index()
                     phase_counts.columns = ['Phase', 'Count']
@@ -2260,32 +2943,27 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                         color_continuous_scale='viridis'
                     )
                     
-                    fig = apply_plotly_dark_theme(fig)
+                    fig = apply_plotly_light_theme(fig)
                     st.plotly_chart(fig, use_container_width=True)
                 
-                # Download button - also remove numeric columns from download
+                # Download
                 download_columns = [col for col in display_columns if col in filtered_drugs.columns]
                 download_data = filtered_drugs[download_columns].to_csv(index=False).encode("utf-8")
                 st.download_button(
-                    "⬇️ Download Drug Suggestions",
+                    "📥 Download Drug Suggestions",
                     data=download_data,
                     file_name="drug_suggestions.csv",
-                    mime="text/csv"
+                    mime="text/csv",
+                    use_container_width=True
                 )
             else:
-                st.info("ℹ️ No drugs match the current filter criteria. Try adjusting the filters or check if your genes have known drug associations.")
+                st.info("ℹ️ No drugs match the filter criteria")
         else:
-            st.info("ℹ️ No drug suggestions available. This could happen if:")
-            st.markdown("""
-            - The mapped genes don't have known drugs in OpenTargets
-            - The genes are not well-characterized for drug targeting
-            - There are temporary API issues
-            - Try using more common cancer genes (TP53, EGFR, BRAF, etc.) for testing
-            """)
-
-    # Step 5: Network Visualization
-    with tab5:
-        st.markdown('<div class="section-title"><span class="icon">🌐</span>Interactive Network Visualization</div>', unsafe_allow_html=True)
+            st.info("ℹ️ No drug suggestions available")
+    
+    #Network Visualization
+    with tab_viz:
+        st.markdown('<div class="section-title">🌐 Interactive Network Visualization</div>', unsafe_allow_html=True)
         
         # Check if we have the required data
         has_diseases = 'diseases' in st.session_state.analysis_results and not st.session_state.analysis_results['diseases'].empty
@@ -2298,199 +2976,121 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
             # Gene-Disease-Drug Network
             with col_left:
                 if has_diseases:
-                    st.markdown("**🔗 Gene-Disease-Drug Network**")
+                    st.markdown("### 🔗 Gene-Disease-Drug Network")
+                    st.markdown("*Visualizing relationships between genes, diseases, and potential drugs*")
                     
                     try:
                         df_diseases = st.session_state.analysis_results['diseases']
+                        df_drugs = st.session_state.analysis_results.get('drugs', pd.DataFrame())
                         
-                        # Get top diseases by gene count
-                        top_diseases = (
-                            df_diseases.groupby('disease_name')
-                            .agg({'gene': lambda x: len(set(x))})
-                            .sort_values('gene', ascending=False)
-                            .head(10)
-                            .index.tolist()
-                        )
+                        fig_network = create_gene_disease_drug_network(df_diseases, df_drugs)
                         
-                        # Filter data
-                        disease_subset = df_diseases[df_diseases['disease_name'].isin(top_diseases)]
-                        genes_in_network = sorted(set(disease_subset['gene']))
-                        
-                        # Add drug connections if available
-                        drug_connections = []
-                        if has_drugs:
-                            df_drugs = st.session_state.analysis_results['drugs']
-                            drug_subset = df_drugs[
-                                (df_drugs['gene'].isin(genes_in_network))
-                            ].head(15)  # Limit drugs
+                        if fig_network:
+                            fig_network = apply_plotly_light_theme(fig_network)
+                            st.plotly_chart(fig_network, use_container_width=True)
                             
-                            for _, row in drug_subset.iterrows():
-                                drug_connections.append((f"Gene: {row['gene']}", f"Drug: {row['drug_name']}"))
-                        
-                        # Create network
-                        nodes = (
-                            [f"Gene: {g}" for g in genes_in_network] + 
-                            [f"Disease: {d}" for d in top_diseases] +
-                            [f"Drug: {drug.split(': ')[1]}" for _, drug in drug_connections]
-                        )
-                        
-                        node_index = {n: i for i, n in enumerate(nodes)}
-                        
-                        # Create links
-                        sources, targets, values = [], [], []
-                        
-                        # Gene-Disease links
-                        for _, row in disease_subset.iterrows():
-                            gene_node = f"Gene: {row['gene']}"
-                            disease_node = f"Disease: {row['disease_name']}"
-                            if gene_node in node_index and disease_node in node_index:
-                                sources.append(node_index[gene_node])
-                                targets.append(node_index[disease_node])
-                                values.append(max(1, int(row['association_score'] * 10)))
-                        
-                        # Gene-Drug links
-                        for gene_drug, drug_node in drug_connections:
-                            if gene_drug in node_index and drug_node in node_index:
-                                sources.append(node_index[gene_drug])
-                                targets.append(node_index[drug_node])
-                                values.append(3)
-                        
-                        if sources:
-                            # Create Sankey diagram
-                            fig_sankey = go.Figure(data=[go.Sankey(
-                                node=dict(
-                                    pad=15,
-                                    thickness=20,
-                                    line=dict(color="#4a5568", width=2),
-                                    label=nodes,
-                                    color="#2d3748"
-                                ),
-                                link=dict(
-                                    source=sources,
-                                    target=targets,
-                                    value=values,
-                                    color="rgba(0, 212, 170, 0.3)"
-                                )
-                            )])
-                            
-                            fig_sankey.update_layout(
-                                title_text="Gene → Disease → Drug Connections",
-                                height=600
-                            )
-                            fig_sankey = apply_plotly_dark_theme(fig_sankey)
-                            
-                            st.plotly_chart(fig_sankey, use_container_width=True)
+                            # Show network statistics
+                            with st.expander("📊 Network Statistics"):
+                                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                                with col_stat1:
+                                    unique_genes = df_diseases['gene'].nunique()
+                                    st.metric("Unique Genes", unique_genes)
+                                with col_stat2:
+                                    unique_diseases = df_diseases['disease_name'].nunique()
+                                    st.metric("Diseases", unique_diseases)
+                                with col_stat3:
+                                    unique_drugs = df_drugs['drug_name'].nunique() if not df_drugs.empty else 0
+                                    st.metric("Drugs", unique_drugs)
                         else:
-                            st.info("Not enough connections for network visualization")
+                            st.info("Not enough data to create network visualization. Try with more genes.")
                             
                     except Exception as e:
-                        st.error(f"Error creating network: {e}")
+                        st.error(f"Error creating gene-disease-drug network: {e}")
             
-            # Pathway Network
+            # Gene-Pathway Interaction Network
             with col_right:
                 if has_pathways:
-                    st.markdown("**🛤️ Gene-Pathway Network**")
+                    st.markdown("### 🛤️ Gene-Pathway Interaction Network")
+                    st.markdown("*Visualizing connections between genes and biological pathways*")
                     
                     try:
                         pathway_to_genes = st.session_state.analysis_results['pathways']
                         
-                        # Get top pathways
-                        top_pathways = sorted(
-                            pathway_to_genes.items(), 
-                            key=lambda x: len(x[1]), 
-                            reverse=True
-                        )[:8]
+                        fig_pathway = create_gene_pathway_interaction_network(pathway_to_genes, kegg_org_prefix)
                         
-                        # Create network graph
-                        G = nx.Graph()
-                        
-                        for pathway_id, genes in top_pathways:
-                            pathway_name = kegg_pathway_name(pathway_id) or pathway_id.replace("path:", "")
-                            pathway_name = pathway_name[:30] + "..." if len(pathway_name) > 30 else pathway_name
+                        if fig_pathway:
+                            fig_pathway = apply_plotly_light_theme(fig_pathway)
+                            st.plotly_chart(fig_pathway, use_container_width=True)
                             
-                            for gene in genes:
-                                G.add_edge(f"P: {pathway_name}", f"G: {gene}")
-                        
-                        if G.nodes():
-                            # Calculate layout
-                            pos = nx.spring_layout(G, k=1, iterations=50, seed=42)
-                            
-                            # Prepare edge traces
-                            edge_x, edge_y = [], []
-                            for edge in G.edges():
-                                x0, y0 = pos[edge[0]]
-                                x1, y1 = pos[edge[1]]
-                                edge_x.extend([x0, x1, None])
-                                edge_y.extend([y0, y1, None])
-                            
-                            # Prepare node traces
-                            node_x = [pos[node][0] for node in G.nodes()]
-                            node_y = [pos[node][1] for node in G.nodes()]
-                            node_text = list(G.nodes())
-                            node_colors = ['#00d4aa' if n.startswith('P:') else '#667eea' for n in node_text]
-                            
-                            # Create figure
-                            fig_network = go.Figure()
-                            
-                            # Add edges
-                            fig_network.add_trace(go.Scatter(
-                                x=edge_x, y=edge_y,
-                                line=dict(width=1, color='rgba(255,255,255,0.3)'),
-                                hoverinfo='none',
-                                mode='lines'
-                            ))
-                            
-                            # Add nodes
-                            fig_network.add_trace(go.Scatter(
-                                x=node_x, y=node_y,
-                                mode='markers+text',
-                                hoverinfo='text',
-                                text=[n.split(': ')[1] for n in node_text],
-                                textposition="middle center",
-                                hovertext=node_text,
-                                marker=dict(
-                                    size=10,
-                                    color=node_colors,
-                                    line=dict(width=2, color='white')
-                                )
-                            ))
-                            
-                            fig_network.update_layout(
-                                title="Gene-Pathway Interaction Network",
-                                showlegend=False,
-                                hovermode='closest',
-                                margin=dict(b=20,l=5,r=5,t=40),
-                                annotations=[
-                                    dict(
-                                        text="Pathways (green) connected to genes (blue)",
-                                        showarrow=False,
-                                        xref="paper", yref="paper",
-                                        x=0.005, y=-0.002,
-                                        xanchor='left', yanchor='bottom',
-                                        font=dict(color='#b3b8c5', size=12)
-                                    )
-                                ],
-                                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                height=600
-                            )
-                            
-                            fig_network = apply_plotly_dark_theme(fig_network)
-                            st.plotly_chart(fig_network, use_container_width=True)
+                            # Show pathway statistics
+                            with st.expander("📊 Pathway Statistics"):
+                                col_stat1, col_stat2 = st.columns(2)
+                                with col_stat1:
+                                    total_pathways = len(pathway_to_genes)
+                                    st.metric("Total Pathways", total_pathways)
+                                with col_stat2:
+                                    avg_genes = sum(len(genes) for genes in pathway_to_genes.values()) / max(1, total_pathways)
+                                    st.metric("Avg Genes/Pathway", f"{avg_genes:.1f}")
+                                
+                                # Show top pathways
+                                pathway_counts = []
+                                for pid, genes in pathway_to_genes.items():
+                                    pathway_name = kegg_pathway_name(pid) or pid.replace("path:", "")
+                                    pathway_counts.append({
+                                        'Pathway': pathway_name[:50] + "..." if len(pathway_name) > 50 else pathway_name,
+                                        'Gene Count': len(genes)
+                                    })
+                                
+                                if pathway_counts:
+                                    df_pathway_counts = pd.DataFrame(pathway_counts)
+                                    df_pathway_counts = df_pathway_counts.sort_values('Gene Count', ascending=False).head(5)
+                                    st.dataframe(df_pathway_counts, use_container_width=True, hide_index=True)
                         else:
-                            st.info("No pathway connections available for visualization")
+                            st.info("Not enough pathway data to create network visualization.")
                             
                     except Exception as e:
-                        st.error(f"Error creating pathway network: {e}")
+                        st.error(f"Error creating gene-pathway network: {e}")
+            
+            # Additional insights
+            st.markdown("---")
+            st.markdown("### 📋 Network Insights")
+            
+            if has_diseases and has_drugs:
+                col_insight1, col_insight2 = st.columns(2)
+                
+                with col_insight1:
+                    st.markdown("**🧬 Key Gene Connections**")
+                    if not df_diseases.empty:
+                        # Find genes with most disease associations
+                        gene_disease_counts = df_diseases.groupby('gene').agg({
+                            'disease_name': 'nunique',
+                            'association_score': 'mean'
+                        }).sort_values('disease_name', ascending=False).head(5)
+                        
+                        for gene, (count, avg_score) in gene_disease_counts.iterrows():
+                            st.markdown(f"• **{gene}**: {int(count)} diseases (avg score: {avg_score:.3f})")
+                
+                with col_insight2:
+                    st.markdown("**💊 Top Therapeutic Targets**")
+                    if not df_drugs.empty:
+                        # Find genes with most drugs
+                        gene_drug_counts = df_drugs.groupby('gene').agg({
+                            'drug_name': 'nunique',
+                            'phase': lambda x: x.max() if not x.empty else 'N/A'
+                        }).sort_values('drug_name', ascending=False).head(5)
+                        
+                        for gene, (count, phase) in gene_drug_counts.iterrows():
+                            st.markdown(f"• **{gene}**: {int(count)} drugs (max phase: {phase})")
+        
         else:
-            st.info("🔄 Complete the previous analysis steps to generate network visualizations.")
+            st.info("🔄 Complete previous analysis steps to generate network visualizations.")
     
     # Footer
     st.markdown("---")
     st.markdown("""
-    <div style='text-align: center; color: #8b92a5; font-size: 0.9rem; padding: 1rem;'>
-        <p><strong>Gene2Therapy</strong> • Enhanced dark mode interface with optimized API integration</p>
-        <p>Data sources: NCBI E-utilities, KEGG REST API, OpenTargets GraphQL • Results cached for 1 hour</p>
+    <div style='text-align: center; color: #64748b; font-size: 0.9rem; padding: 1rem;'>
+        <p><strong>Gene2Therapy</strong> • Modern light theme interface with optimized performance</p>
+        <p>Data sources: NCBI, KEGG, OpenTargets • Results cached for 1 hour</p>
         <p>⚠️ Always validate findings with primary literature and clinical sources</p>
     </div>
     """, unsafe_allow_html=True)
@@ -2503,25 +3103,53 @@ def main():
     # Initialize session state
     initialize_session_state()
     
-    # Main title and mode selection - CENTERED TITLE
-    st.markdown("<h1 style='text-align: center;'>Gene2Therapy</h1>", unsafe_allow_html=True)
-    
+    # Main title with gradient
     st.markdown("""
-    This integrated pipeline provides a complete workflow from differential expression analysis 
-    to pathway enrichment, disease association, and drug discovery.
-    """)
+    <div style="text-align: center; padding: 2rem 0;">
+        <h1 style="
+            font-size: 3.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #3b82f6 0%, #10b981 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            margin-bottom: 0.5rem;
+            font-family: 'Source Sans Pro', sans-serif;
+        ">
+            🧬 Gene2Therapy
+        </h1>
+        <p style="
+            color: #64748b;
+            font-size: 1.2rem;
+            max-width: 800px;
+            margin: 0 auto 2rem auto;
+            line-height: 1.6;
+        ">
+            Integrated pipeline for differential expression analysis, pathway enrichment, 
+            disease association, and drug discovery
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Analysis mode selection with improved styling - REMOVED the third option
-    st.header("Select Analysis Mode")
+    # Mode selection with feature cards
+    st.markdown('<div class="section-title">Select Analysis Mode</div>', unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)  # Changed from 3 columns to 2
+    col1, col2 = st.columns(2)
     
     with col1:
-        # Create custom button with active state styling
-        button_class = "mode-button active" if st.session_state.analysis_mode == 'degs_only' else "mode-button"
-        st.markdown(f'<div class="{button_class}">🧬<br><strong>DEGs Analysis</strong><br><small>Identify differentially expressed genes from RNA-seq data</small></div>', 
-                   unsafe_allow_html=True)
-        if st.button("Select DEGs Analysis", key="degs_btn", use_container_width=True):
+        st.markdown("""
+        <div class="feature-card">
+            <div class="mode-icon">🧬</div>
+            <div class="feature-title">DEGs Analysis</div>
+            <div class="feature-desc">
+                Identify differentially expressed genes from RNA-seq data.
+                Upload count matrices, configure statistical parameters, and
+                visualize results with interactive plots.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("Start DEGs Analysis", key="degs_btn", use_container_width=True):
             st.session_state.analysis_mode = 'degs_only'
             st.session_state.current_pipeline_step = 'degs'
             st.session_state.show_pathway_analysis = False
@@ -2529,63 +3157,83 @@ def main():
             st.rerun()
     
     with col2:
-        button_class = "mode-button active" if st.session_state.analysis_mode == 'pathway_only' else "mode-button"
-        st.markdown(f'<div class="{button_class}">💊<br><strong>Pathway & Drug Analysis</strong><br><small>Enrichment, disease links, and drug discovery</small></div>', 
-                   unsafe_allow_html=True)
-        if st.button("Select Pathway & Drug Analysis", key="pathway_btn", use_container_width=True):
+        st.markdown("""
+        <div class="feature-card">
+            <div class="mode-icon">💊</div>
+            <div class="feature-title">Pathway & Drug Analysis</div>
+            <div class="feature-desc">
+                Discover enriched pathways, disease associations, and
+                therapeutic compounds. Use DEG results or upload custom
+                gene lists for comprehensive analysis.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("Start Pathway Analysis", key="pathway_btn", use_container_width=True):
             st.session_state.analysis_mode = 'pathway_only'
             st.session_state.current_pipeline_step = 'pathway'
             st.session_state.show_pathway_analysis = True
             st.session_state.degs_completed = False
             st.rerun()
     
-    # Display appropriate pipeline based on selection
+    # Display appropriate pipeline
+    st.markdown("---")
+    
     if st.session_state.analysis_mode == 'degs_only':
-        st.markdown("---")
-        st.info("🔬 Running Differential Expression Analysis")
+        st.markdown('<div style="text-align: center; margin: 2rem 0;"><h2>🧬 Differential Expression Analysis</h2></div>', unsafe_allow_html=True)
         run_degs_analysis()
     
     elif st.session_state.analysis_mode == 'pathway_only':
-        st.markdown("---")
-        st.info("🔬 Running Pathway Enrichment & Drug Discovery")
+        st.markdown('<div style="text-align: center; margin: 2rem 0;"><h2>💊 Pathway & Drug Analysis</h2></div>', unsafe_allow_html=True)
         run_pathway_analysis()
     
     else:
-        # Show instructions when no mode is selected
-        st.markdown("---")
-        st.subheader("Pipeline Overview")
+        # Welcome and feature overview
+        st.markdown("""
+        <div style="text-align: center; padding: 3rem 0;">
+            <h2 style="color: #3b82f6; margin-bottom: 2rem;">Welcome to Gene2Therapy</h2>
+            <p style="color: #64748b; font-size: 1.1rem; max-width: 800px; margin: 0 auto 3rem auto;">
+                A comprehensive bioinformatics platform for gene expression analysis and therapeutic discovery.
+                Choose one of the analysis modes above to get started.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        col1, col2 = st.columns(2)
+        # Feature highlights
+        col_feat1, col_feat2, col_feat3 = st.columns(3)
         
-        with col1:
-            st.markdown("### 🧬 DEGs Analysis Pipeline")
+        with col_feat1:
             st.markdown("""
-            - **Input**: RNA-seq count matrix
-            - **Process**: Differential expression analysis
-            - **Output**: 
-                - Up/down regulated genes
-                - Volcano plots
-                - Statistical results
-            - **Use Case**: Identify significantly expressed genes between conditions
-            """)
+            <div class="feature-card">
+                <div style="font-size: 2rem; margin-bottom: 1rem;">⚡</div>
+                <div class="feature-title">Fast Processing</div>
+                <div class="feature-desc">
+                    Optimized algorithms and caching for rapid analysis of large datasets
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
         
-        with col2:
-            st.markdown("### 💊 Pathway & Drug Analysis Pipeline")
+        with col_feat2:
             st.markdown("""
-            - **Input**: Gene list (from DEGs or manual input)
-            - **Process**: 
-                - Pathway enrichment (KEGG)
-                - Disease associations (OpenTargets)
-                - Drug suggestions
-            - **Output**: 
-                - Annotated pathways
-                - Disease links
-                - Therapeutic compounds
-            - **Use Case**: Functional interpretation and drug repurposing
-            """)
+            <div class="feature-card">
+                <div style="font-size: 2rem; margin-bottom: 1rem;">🔗</div>
+                <div class="feature-title">Integrated Databases</div>
+                <div class="feature-desc">
+                    Access NCBI, KEGG, and OpenTargets databases for comprehensive analysis
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
         
-        st.markdown("---")
-        st.info("👆 Select an analysis mode above to get started!")
+        with col_feat3:
+            st.markdown("""
+            <div class="feature-card">
+                <div style="font-size: 2rem; margin-bottom: 1rem;">📊</div>
+                <div class="feature-title">Interactive Visualization</div>
+                <div class="feature-desc">
+                    Beautiful, interactive plots and networks for data exploration
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
