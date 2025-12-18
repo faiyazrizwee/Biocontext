@@ -1788,7 +1788,7 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
-    """Fixed: Enhanced drug suggestions fetch"""
+    """Fixed: Enhanced drug suggestions fetch with correct phase parsing"""
     query = """
     query KnownDrugs($id: String!, $size: Int!) {
       target(ensemblId: $id) {
@@ -1837,26 +1837,55 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
             therapeutic_areas = disease_obj.get("therapeuticAreas", [])
             ta_names = "; ".join([ta.get("name", "") for ta in therapeutic_areas if ta.get("name")])
             
+            # Parse phase value correctly
             phase = r.get("phase")
             try:
-                phase_numeric = int(phase) if phase and phase.isdigit() else 0
+                # Handle "4" or "Phase 4" or "IV" formats
+                if isinstance(phase, str):
+                    if phase.isdigit():
+                        phase_numeric = int(phase)
+                    elif "Phase" in phase:
+                        phase_numeric = int(phase.replace("Phase", "").strip())
+                    elif phase.upper() == "IV":
+                        phase_numeric = 4
+                    elif phase.upper() == "III":
+                        phase_numeric = 3
+                    elif phase.upper() == "II":
+                        phase_numeric = 2
+                    elif phase.upper() == "I":
+                        phase_numeric = 1
+                    else:
+                        phase_numeric = 0
+                elif isinstance(phase, (int, float)):
+                    phase_numeric = int(phase)
+                else:
+                    phase_numeric = 0
             except:
                 phase_numeric = 0
-                
+            
+            # Parse max_phase value
             max_phase = drug_obj.get("maximumClinicalTrialPhase")
             try:
-                max_phase_numeric = int(max_phase) if max_phase and str(max_phase).isdigit() else 0
+                if isinstance(max_phase, str):
+                    if max_phase.isdigit():
+                        max_phase_numeric = int(max_phase)
+                    else:
+                        max_phase_numeric = phase_numeric  # Fallback to current phase
+                elif isinstance(max_phase, (int, float)):
+                    max_phase_numeric = int(max_phase)
+                else:
+                    max_phase_numeric = phase_numeric  # Fallback to current phase
             except:
-                max_phase_numeric = 0
+                max_phase_numeric = phase_numeric  # Fallback to current phase
             
             out.append({
                 "target": ensembl_id,
                 "drug_id": drug_obj.get("id"),
                 "drug_name": drug_obj.get("name"),
                 "drug_type": drug_obj.get("drugType"),
-                "phase": phase,
+                "phase": str(phase) if phase else "Unknown",
                 "status": r.get("status"),
-                "max_phase": max_phase,
+                "max_phase": str(max_phase) if max_phase else "Unknown",
                 "moa": r.get("mechanismOfAction"),
                 "disease_name": disease_obj.get("name"),
                 "therapeutic_areas": ta_names,
@@ -2931,7 +2960,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
         else:
             st.info("ℹ️ No disease associations found")
     
-    # Drug Suggestions
+    # Drug Suggestions - FIXED SECTION
     with tab_drug:
         st.markdown('<div class="section-title">Therapeutic Drug Discovery</div>', unsafe_allow_html=True)
         
@@ -2954,10 +2983,11 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
             st.markdown(f"**Found {len(filtered_drugs)} total drug entries**")
             
             if opt_only_phase4:
+                # Show drugs that have reached phase 4 or higher (approved drugs)
                 filtered_drugs = filtered_drugs[
-                    (filtered_drugs['phase_numeric'] >= 4) | 
                     (filtered_drugs['max_phase_numeric'] >= 4)
                 ]
+                st.info(f"Showing only approved drugs (Phase 4+): {len(filtered_drugs)} drugs")
             
             if not show_investigational:
                 filtered_drugs = filtered_drugs[
@@ -2965,11 +2995,12 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 ]
             
             if not filtered_drugs.empty:
-                # Calculate metrics
-                valid_phases = filtered_drugs[filtered_drugs['phase_numeric'] > 0]['phase_numeric']
-                avg_phase = valid_phases.mean() if len(valid_phases) > 0 else 0
+                # Calculate metrics - FIXED
+                # Use max_phase_numeric instead of phase_numeric for better accuracy
+                valid_max_phases = filtered_drugs[filtered_drugs['max_phase_numeric'] > 0]['max_phase_numeric']
+                avg_phase = valid_max_phases.mean() if len(valid_max_phases) > 0 else 0
                 
-                # Summary
+                # Summary - FIXED
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
@@ -2981,7 +3012,11 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 with col3:
                     st.metric("Avg Phase", f"{avg_phase:.1f}")
                 with col4:
-                    approved_drugs = len(filtered_drugs[filtered_drugs['phase_numeric'] >= 4])
+                    # Count drugs that have reached phase 4 (approved) in either current phase or max phase
+                    approved_drugs = len(filtered_drugs[
+                        (filtered_drugs['phase_numeric'] >= 4) | 
+                        (filtered_drugs['max_phase_numeric'] >= 4)
+                    ])
                     st.metric("Approved Drugs", approved_drugs)
                 
                 # Data table
