@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from scipy.stats import ttest_ind
+from pydeseq2.dds import DeseqDataSet
+from pydeseq2.ds import DeseqStats
 import warnings
 import io
 from datetime import datetime
@@ -932,7 +934,7 @@ def check_data_quality(count_matrix, group1_samples, group2_samples):
     return quality_issues
 
 # =============================================================================
-# NORMALIZATION FUNCTIONS
+# NORMALIZATION AND ANALYSIS FUNCTIONS
 # =============================================================================
 
 def normalize_to_cpm(count_matrix):
@@ -943,41 +945,77 @@ def normalize_to_cpm(count_matrix):
     cpm_matrix = count_matrix.div(library_sizes, axis=1) * 1e6
     return cpm_matrix
 
-import numpy as np
-import pandas as pd
-
-def normalize_with_deseq2(count_matrix):
+def run_pydeseq2_analysis(count_matrix, sample_group1, sample_group2, 
+                         group1_name="Control", group2_name="Treatment"):
     """
-    Correct DESeq2-style median-of-ratios normalization
+    Run full DESeq2 analysis using pyDESeq2 package
     """
+    try:
+        # Prepare sample metadata
+        samples = sample_group1 + sample_group2
+        conditions = [group1_name] * len(sample_group1) + [group2_name] * len(sample_group2)
+        
+        # Create metadata DataFrame with samples as index
+        metadata = pd.DataFrame({
+            'condition': conditions
+        }, index=samples)
+        
+        # Select the count data for the samples
+        count_data = count_matrix[samples]
+        
+        # IMPORTANT: Transpose the count matrix so that samples are rows and genes are columns
+        # DESeq2 expects: rows = samples, columns = genes
+        count_data_transposed = count_data.T
+        
+        # Create DESeqDataSet
+        dds = DeseqDataSet(
+            counts=count_data_transposed,  # Now samples as rows, genes as columns
+            metadata=metadata,
+            design_factors='condition',
+            ref_level=[group1_name]
+        )
+        
+        # Run DESeq2
+        dds.deseq2()
+        
+        # Get results
+        stat_res = DeseqStats(dds, 
+                             contrast=['condition', group2_name, group1_name])
+        stat_res.summary()
+        results_df = stat_res.results_df
+        
+        # Format results to match our expected format
+        results = pd.DataFrame({
+            'Gene': results_df.index,
+            'logFC': results_df['log2FoldChange'],
+            'p_value': results_df['pvalue'],
+            'adj_p_value': results_df['padj'],
+            'baseMean': results_df['baseMean'],
+            'lfcSE': results_df['lfcSE'],
+            'stat': results_df['stat']
+        })
+        
+        # Handle NaN values
+        results['p_value'] = results['p_value'].fillna(1.0)
+        results['adj_p_value'] = results['adj_p_value'].fillna(1.0)
+        
+        # Add mean expression values from the original (non-transposed) data
+        results['mean_group1'] = count_data[sample_group1].mean(axis=1)
+        results['mean_group2'] = count_data[sample_group2].mean(axis=1)
+        
+        return results, dds
+        
+    except ImportError:
+        raise ImportError(
+            "pyDESeq2 is not installed. Please install it with: "
+            "pip install pydeseq2"
+        )
+    except Exception as e:
+        raise Exception(f"DESeq2 analysis failed: {str(e)}")
 
-    # Convert to float for division
-    counts = count_matrix.astype(float)
-
-    # 1️⃣ Compute geometric mean per gene
-    # Exclude genes with any zero counts (DESeq2 rule)
-    nonzero_mask = (counts > 0).all(axis=1)
-    counts_nz = counts.loc[nonzero_mask]
-
-    geometric_means = np.exp(
-        np.log(counts_nz).mean(axis=1)
-    )
-
-    # Compute ratios (raw counts / geometric means)
-    ratios = counts_nz.div(geometric_means, axis=0)
-
-    # Compute size factors (median of ratios per sample)
-    size_factors = ratios.median(axis=0)
-
-    # Normalize raw counts 
-    normalized = counts.div(size_factors, axis=1)
-
-    return normalized
-
-
-def calculate_differential_expression_normalized(normalized_matrix, sample_group1, sample_group2):
+def calculate_differential_expression_ttest(normalized_matrix, sample_group1, sample_group2):
     """
-    Calculate differential expression for normalized data
+    Calculate differential expression using t-test on normalized data
     """
     # Apply log2 transformation for normalized data
     log_data = np.log2(normalized_matrix + 0.1)
@@ -1013,24 +1051,33 @@ def calculate_differential_expression_normalized(normalized_matrix, sample_group
     return results
 
 @st.cache_data
-def cached_calculate_de(_count_matrix, sample_group1, sample_group2, logFC_threshold, p_value_threshold, 
-                        data_is_normalized, normalization_method="CPM"):
+def cached_calculate_de(_count_matrix, sample_group1, sample_group2, logFC_threshold, 
+                        p_value_threshold, data_is_normalized, analysis_method="t-test"):
     """
-    Cached version of differential expression analysis with normalization option
+    Cached version of differential expression analysis with method selection
     """
-    # Apply normalization if needed
-    analysis_matrix = _count_matrix.copy()
-    if not data_is_normalized:
-        if normalization_method == "CPM (Counts Per Million)":
-            analysis_matrix = normalize_to_cpm(analysis_matrix)
-        elif normalization_method == "DESeq2 (Median of Ratios)":
-            analysis_matrix = normalize_with_deseq2(analysis_matrix)
+    if analysis_method == "DESeq2" and not data_is_normalized:
+        # Run full DESeq2 analysis
+        results, dds = run_pydeseq2_analysis(
+            _count_matrix, sample_group1, sample_group2
+        )
+        # Store the DESeq2 object for later use if needed
+        st.session_state.deseq2_object = dds
+    elif data_is_normalized:
+        # Use t-test on already normalized data
+        results = calculate_differential_expression_ttest(
+            _count_matrix, sample_group1, sample_group2
+        )
+    else:
+        # If data is not normalized but user selected t-test, apply CPM normalization
+        analysis_matrix = normalize_to_cpm(_count_matrix)
+        results = calculate_differential_expression_ttest(
+            analysis_matrix, sample_group1, sample_group2
+        )
     
-    # Calculate differential expression on normalized data
-    results = calculate_differential_expression_normalized(analysis_matrix, sample_group1, sample_group2)
     upregulated, downregulated = filter_and_sort_degs(results, logFC_threshold, p_value_threshold)
     
-    return results, upregulated, downregulated, analysis_matrix
+    return results, upregulated, downregulated
 
 def run_degs_analysis():
     """Run the DEGs analysis pipeline"""
@@ -1077,28 +1124,6 @@ def run_degs_analysis():
                 help="Check if your data is already normalized (FPKM, TPM, etc.)"
             )
         
-        # ========== ADD NORMALIZATION METHOD SELECTION ==========
-        if not data_is_normalized and uploaded_file is not None:
-            st.markdown('<div class="section-title">Normalization Settings</div>', unsafe_allow_html=True)
-            
-            col_norm1, col_norm2 = st.columns([1, 2])
-            
-            with col_norm1:
-                normalization_method = st.selectbox(
-                    "Normalization Method",
-                    ["CPM (Counts Per Million)", 
-                     "DESeq2 (Median of Ratios)"],
-                    help="Select normalization method for raw counts"
-                )
-            
-            with col_norm2:
-                if normalization_method == "CPM (Counts Per Million)":
-                    st.info("🔬 **CPM**: Simple library size normalization. Divides counts by total library size and scales to million.")
-                elif normalization_method == "DESeq2 (Median of Ratios)":
-                    st.info("🔬 **DESeq2**: Robust normalization using median ratios. Better for datasets with many zeros.")
-        else:
-            normalization_method = "None (already normalized)"
-        
         if uploaded_file is not None:
             try:
                 if uploaded_file.name.endswith('.csv'):
@@ -1118,21 +1143,18 @@ def run_degs_analysis():
                         st.metric("Columns (Samples)", count_matrix.shape[1])
                         st.metric("Total Values", count_matrix.shape[0] * count_matrix.shape[1])
                 
-                # Apply normalization if needed
-                analysis_matrix = count_matrix.copy()
+                # Show normalization warning if data is not normalized
                 if not data_is_normalized:
-                    with st.spinner(f"🔄 Applying {normalization_method}..."):
-                        if normalization_method == "CPM (Counts Per Million)":
-                            analysis_matrix = normalize_to_cpm(analysis_matrix)
-                        elif normalization_method == "DESeq2 (Median of Ratios)":
-                            analysis_matrix = normalize_with_deseq2(analysis_matrix)
+                    st.warning("""
+                    ⚠️ **Raw count data detected**
                     
-                    st.success(f"✅ {normalization_method} normalization completed")
+                    For accurate differential expression analysis of raw RNA-seq counts, 
+                    we recommend using the DESeq2 method which properly models count data.
+                    """)
                 
-                st.session_state.analysis_matrix = analysis_matrix
+                st.session_state.count_matrix = count_matrix
                 st.session_state.uploaded_file = uploaded_file.name
                 st.session_state.data_is_normalized = data_is_normalized
-                st.session_state.normalization_method = normalization_method
                 
             except Exception as e:
                 st.error(f"❌ Error processing file: {str(e)}")
@@ -1142,9 +1164,9 @@ def run_degs_analysis():
     with tab2:
         st.markdown('<div class="section-title">Analysis Configuration</div>', unsafe_allow_html=True)
         
-        # Check if analysis matrix exists in session state
-        if 'analysis_matrix' in st.session_state and st.session_state.analysis_matrix is not None:
-            analysis_matrix = st.session_state.analysis_matrix
+        # Check if count matrix exists in session state
+        if 'count_matrix' in st.session_state and st.session_state.count_matrix is not None:
+            count_matrix = st.session_state.count_matrix
             
             # Sample group configuration
             col1, col2 = st.columns(2)
@@ -1154,7 +1176,7 @@ def run_degs_analysis():
                 group1_name = st.text_input("Group name", value="Control", key="group1_name")
                 group1_samples = st.multiselect(
                     "Select samples",
-                    options=analysis_matrix.columns.tolist(),
+                    options=count_matrix.columns.tolist(),
                     key="group1_samples"
                 )
                 if group1_samples:
@@ -1163,7 +1185,7 @@ def run_degs_analysis():
             with col2:
                 st.subheader("Group 2 - Treatment")
                 group2_name = st.text_input("Group name", value="Treatment", key="group2_name")
-                available_samples = [col for col in analysis_matrix.columns if col not in group1_samples]
+                available_samples = [col for col in count_matrix.columns if col not in group1_samples]
                 group2_samples = st.multiselect(
                     "Select samples",
                     options=available_samples,
@@ -1172,7 +1194,33 @@ def run_degs_analysis():
                 if group2_samples:
                     st.markdown(f'<span class="badge">{len(group2_samples)} samples selected</span>', unsafe_allow_html=True)
             
-            # Analysis parameters
+            # Analysis method selection
+            st.subheader("Analysis Method")
+            
+            if st.session_state.data_is_normalized:
+                st.info("📊 **Using t-test** - Your data is already normalized")
+                analysis_method = "t-test"
+            else:
+                # Let user choose method for raw data
+                analysis_method = st.radio(
+                    "Select analysis method:",
+                    options=["DESeq2 (recommended for raw counts)", "t-test (with CPM normalization)"],
+                    index=0,
+                    help="""
+                    **DESeq2**: Full Negative Binomial model for raw counts (most accurate)
+                    **t-test**: Simple t-test on CPM-normalized data (faster but less accurate)
+                    """
+                )
+                
+                # Extract method name
+                if "DESeq2" in analysis_method:
+                    analysis_method = "DESeq2"
+                    st.success("✅ **DESeq2 selected** - Using Negative Binomial model for raw counts")
+                else:
+                    analysis_method = "t-test"
+                    st.info("📊 **t-test selected** - Using CPM normalization + t-test")
+            
+            # Statistical parameters
             st.subheader("Statistical Parameters")
             col_param1, col_param2 = st.columns(2)
             
@@ -1181,7 +1229,7 @@ def run_degs_analysis():
                     "logFC Threshold",
                     min_value=0.0,
                     max_value=5.0,
-                    value=2.0,
+                    value=1.0,
                     step=0.1,
                     help="Minimum absolute log2 fold change for significance"
                 )
@@ -1193,6 +1241,25 @@ def run_degs_analysis():
                     value=0.05,
                     help="Maximum p-value for significance"
                 )
+            
+            # DESeq2 specific settings (if selected)
+            if not st.session_state.data_is_normalized and analysis_method == "DESeq2":
+                st.subheader("DESeq2 Settings")
+                col_deseq1, col_deseq2 = st.columns(2)
+                
+                with col_deseq1:
+                    independent_filtering = st.checkbox(
+                        "Independent filtering",
+                        value=True,
+                        help="Filter genes with low counts to improve multiple testing correction"
+                    )
+                
+                with col_deseq2:
+                    cooks_cutoff = st.checkbox(
+                        "Cook's distance outlier detection",
+                        value=True,
+                        help="Identify and handle outliers using Cook's distance"
+                    )
             
             # Performance settings
             st.subheader("Performance Settings")
@@ -1218,7 +1285,8 @@ def run_degs_analysis():
                             'group2_samples': group2_samples,
                             'logFC_threshold': logFC_threshold,
                             'p_value_threshold': p_value_threshold,
-                            'use_caching': use_caching
+                            'use_caching': use_caching,
+                            'analysis_method': analysis_method
                         }
                         st.rerun()
         else:
@@ -1227,13 +1295,12 @@ def run_degs_analysis():
     with tab3:
         st.markdown('<div class="section-title">Analysis Results</div>', unsafe_allow_html=True)
         
-        # FIXED: Check if analysis_params exists and analysis_matrix is not None
         if ('analysis_params' in st.session_state and 
-            'analysis_matrix' in st.session_state and 
-            st.session_state.analysis_matrix is not None):
+            'count_matrix' in st.session_state and 
+            st.session_state.count_matrix is not None):
             
             params = st.session_state.analysis_params
-            analysis_matrix = st.session_state.analysis_matrix
+            count_matrix = st.session_state.count_matrix
             
             # Setup progress
             progress_bar = st.progress(0)
@@ -1245,38 +1312,54 @@ def run_degs_analysis():
                 progress_bar.progress(10)
                 
                 try:
-                    # Get normalization method from session state
-                    normalization_method = st.session_state.get('normalization_method', 'CPM (Counts Per Million)')
-                    data_is_normalized = st.session_state.get('data_is_normalized', False)
+                    # Get analysis method
+                    analysis_method = params['analysis_method']
                     
                     # Perform analysis
                     if params['use_caching']:
-                        results, upregulated, downregulated, normalized_matrix = cached_calculate_de(
-                            analysis_matrix,
+                        results, upregulated, downregulated = cached_calculate_de(
+                            count_matrix,
                             params['group1_samples'],
                             params['group2_samples'],
                             params['logFC_threshold'],
                             params['p_value_threshold'],
-                            data_is_normalized,
-                            normalization_method
+                            st.session_state.data_is_normalized,
+                            analysis_method
                         )
                     else:
-                        # Apply normalization if needed
-                        if not data_is_normalized:
-                            if normalization_method == "CPM (Counts Per Million)":
-                                normalized_matrix = normalize_to_cpm(analysis_matrix)
-                            elif normalization_method == "DESeq2 (Median of Ratios)":
-                                normalized_matrix = normalize_with_deseq2(analysis_matrix)
-                            else:
-                                normalized_matrix = analysis_matrix
+                        # Non-cached version
+                        if analysis_method == "DESeq2" and not st.session_state.data_is_normalized:
+                            # Run DESeq2
+                            status_text.text("Running DESeq2 analysis...")
+                            progress_bar.progress(30)
+                            results, dds = run_pydeseq2_analysis(
+                                count_matrix,
+                                params['group1_samples'],
+                                params['group2_samples'],
+                                params['group1_name'],
+                                params['group2_name']
+                            )
+                            st.session_state.deseq2_object = dds
+                        elif st.session_state.data_is_normalized:
+                            # Use t-test on normalized data
+                            status_text.text("Running t-test on normalized data...")
+                            progress_bar.progress(30)
+                            results = calculate_differential_expression_ttest(
+                                count_matrix,
+                                params['group1_samples'],
+                                params['group2_samples']
+                            )
                         else:
-                            normalized_matrix = analysis_matrix
+                            # Use CPM + t-test
+                            status_text.text("Normalizing with CPM...")
+                            progress_bar.progress(30)
+                            normalized_matrix = normalize_to_cpm(count_matrix)
+                            results = calculate_differential_expression_ttest(
+                                normalized_matrix,
+                                params['group1_samples'],
+                                params['group2_samples']
+                            )
                         
-                        results = calculate_differential_expression_normalized(
-                            normalized_matrix,
-                            params['group1_samples'],
-                            params['group2_samples']
-                        )
                         status_text.text("Filtering significant genes...")
                         progress_bar.progress(70)
                         upregulated, downregulated = filter_and_sort_degs(
@@ -1289,9 +1372,6 @@ def run_degs_analysis():
                     status_text.text("✅ Analysis complete!")
                     time.sleep(0.5)
                     
-                    # Store the normalized matrix for display
-                    st.session_state.normalized_matrix = normalized_matrix
-                    
                     # Clear progress
                     progress_bar.empty()
                     status_text.empty()
@@ -1302,11 +1382,24 @@ def run_degs_analysis():
                         'upregulated': upregulated,
                         'downregulated': downregulated,
                         'params': params,
-                        'normalization_method': normalization_method,
-                        'data_is_normalized': data_is_normalized
+                        'data_is_normalized': st.session_state.data_is_normalized,
+                        'analysis_method': analysis_method
                     }
                     st.session_state.degs_completed = True
                     
+                except ImportError as e:
+                    st.error(f"""
+                    ❌ **pyDESeq2 not installed**
+                    
+                    To use DESeq2 analysis, please install pyDESeq2:
+                    
+                    ```bash
+                    pip install pydeseq2
+                    ```
+                    
+                    Then restart the application.
+                    """)
+                    return
                 except Exception as e:
                     st.error(f"❌ Analysis failed: {str(e)}")
             
@@ -1328,9 +1421,13 @@ def run_degs_analysis():
                 with col4:
                     st.metric("Downregulated", len(results_data['downregulated']))
                 
-                # Show normalization info
-                if not data_is_normalized:
-                    st.info(f"🔬 **Normalization Method:** {normalization_method}")
+                # Show analysis method info
+                if results_data['analysis_method'] == "DESeq2":
+                    st.success(f"✅ **Analysis Method:** DESeq2 (Negative Binomial model)")
+                    if 'adj_p_value' in results_data['results'].columns:
+                        st.info(f"🔬 **Multiple testing correction:** Benjamini-Hochberg FDR applied")
+                else:
+                    st.info(f"📊 **Analysis Method:** {results_data['analysis_method']}")
                 
                 # Gene tables
                 st.markdown("### 🧬 Top Differentially Expressed Genes")
@@ -1339,23 +1436,67 @@ def run_degs_analysis():
                 
                 with tab_up:
                     if not results_data['upregulated'].empty:
-                        display_up = results_data['upregulated'].head(10)[['Gene', 'logFC', 'p_value']].round(4)
+                        # Include adjusted p-value if available
+                        display_cols = ['Gene', 'logFC', 'p_value']
+                        if 'adj_p_value' in results_data['upregulated'].columns:
+                            display_cols.append('adj_p_value')
+                        
+                        display_up = results_data['upregulated'].head(10)[display_cols].round(4)
                         st.dataframe(display_up, use_container_width=True)
                     else:
                         st.info("No upregulated genes found")
                 
                 with tab_down:
                     if not results_data['downregulated'].empty:
-                        display_down = results_data['downregulated'].head(10)[['Gene', 'logFC', 'p_value']].round(4)
+                        # Include adjusted p-value if available
+                        display_cols = ['Gene', 'logFC', 'p_value']
+                        if 'adj_p_value' in results_data['downregulated'].columns:
+                            display_cols.append('adj_p_value')
+                        
+                        display_down = results_data['downregulated'].head(10)[display_cols].round(4)
                         st.dataframe(display_down, use_container_width=True)
                     else:
                         st.info("No downregulated genes found")
+                
+                # Additional DESeq2 stats if available
+                if results_data['analysis_method'] == "DESeq2" and 'deseq2_object' in st.session_state:
+                    with st.expander("📊 DESeq2 Model Statistics"):
+                        try:
+                            dds = st.session_state.deseq2_object
+                            
+                            col_stat1, col_stat2, col_stat3 = st.columns(3)
+                            
+                            with col_stat1:
+                                # Dispersion estimates
+                                st.metric("Median Dispersion", f"{np.median(dds.varm['dispersions']):.3f}")
+                            
+                            with col_stat2:
+                                # Size factors
+                                st.metric("Size Factor Range", 
+                                         f"{dds.obs['size_factors'].min():.2f}-{dds.obs['size_factors'].max():.2f}")
+                            
+                            with col_stat3:
+                                # Cook's distance outliers
+                                if 'cooks' in dds.layers:
+                                    cooks = dds.layers['cooks']
+                                    outlier_count = np.sum(cooks > 10)  # Typical DESeq2 cutoff
+                                    st.metric("Potential Outliers", outlier_count)
+                        except:
+                            st.info("Detailed DESeq2 statistics not available")
                 
                 # Volcano plot
                 st.markdown("### 🌋 Volcano Plot")
                 try:
                     plot_data = results_data['results'].copy()
-                    plot_data['-log10(p_value)'] = -np.log10(plot_data['p_value'])
+                    
+                    # Use adjusted p-value if available, otherwise use raw p-value
+                    if 'adj_p_value' in plot_data.columns:
+                        plot_data['-log10(p_value)'] = -np.log10(plot_data['adj_p_value'])
+                        pval_label = "Adjusted p-value"
+                    else:
+                        plot_data['-log10(p_value)'] = -np.log10(plot_data['p_value'])
+                        pval_label = "p-value"
+                    
                     plot_data['Significant'] = (np.abs(plot_data['logFC']) > params['logFC_threshold']) & (plot_data['p_value'] < params['p_value_threshold'])
                     
                     fig = px.scatter(
@@ -1365,7 +1506,7 @@ def run_degs_analysis():
                         color='Significant',
                         hover_data=['Gene'],
                         title=f"{params['group1_name']} vs {params['group2_name']}",
-                        labels={'logFC': 'log2 Fold Change', '-log10(p_value)': '-log10(p-value)'},
+                        labels={'logFC': 'log2 Fold Change', '-log10(p_value)': f'-log10({pval_label})'},
                         color_discrete_map={True: '#ef4444', False: '#94a3b8'},
                         opacity=0.7
                     )
@@ -1390,7 +1531,7 @@ def run_degs_analysis():
                 st.markdown("### 📥 Download Results")
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 
-                col_dl1, col_dl2 = st.columns(2)
+                col_dl1, col_dl2, col_dl3 = st.columns(3)
                 
                 with col_dl1:
                     # All DEGs
@@ -1416,6 +1557,27 @@ def run_degs_analysis():
                         use_container_width=True
                     )
                 
+                with col_dl3:
+                    # DESeq2 normalized counts if available
+                    if results_data['analysis_method'] == "DESeq2" and 'deseq2_object' in st.session_state:
+                        try:
+                            dds = st.session_state.deseq2_object
+                            norm_counts = pd.DataFrame(
+                                dds.layers['normed_counts'],
+                                index=count_matrix.index,
+                                columns=count_matrix.columns
+                            )
+                            csv_norm = norm_counts.to_csv()
+                            st.download_button(
+                                label="Download DESeq2 Normalized Counts",
+                                data=csv_norm,
+                                file_name=f"deseq2_normalized_counts_{timestamp}.csv",
+                                mime="text/csv",
+                                use_container_width=True
+                            )
+                        except:
+                            pass
+                
                 # Continue to pathway analysis
                 st.markdown("---")
                 st.markdown("### 🔄 Continue Analysis")
@@ -1431,8 +1593,7 @@ def run_degs_analysis():
                     st.session_state.current_pipeline_step = 'pathway'
                     st.rerun()
         
-        # FIXED: Check if analysis matrix is not in session state
-        elif 'analysis_matrix' not in st.session_state:
+        elif 'count_matrix' not in st.session_state:
             st.info("📤 Please upload data in the 'Upload Data' tab first")
         else:
             st.info("⚙️ Configure and run the analysis in the 'Configure' tab")
