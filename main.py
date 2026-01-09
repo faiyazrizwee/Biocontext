@@ -1231,7 +1231,7 @@ def run_degs_analysis():
                     col_preview1, col_preview2 = st.columns(2)
                     with col_preview1:
                         display_rows = min(10, len(count_matrix))
-                        st.dataframe(count_matrix.head(display_rows), width="stretch")
+                        st.dataframe(count_matrix.head(display_rows), use_container_width=True)
                     with col_preview2:
                         st.metric("Rows (Genes)", count_matrix.shape[0])
                         st.metric("Columns (Samples)", count_matrix.shape[1])
@@ -1369,7 +1369,7 @@ def run_degs_analysis():
             
             # Run analysis button
             st.markdown("---")
-            if st.button("🚀 Run Differential Expression Analysis", type="primary", width="stretch"):
+            if st.button("🚀 Run Differential Expression Analysis", type="primary", use_container_width=True):
                 if not group1_samples or not group2_samples:
                     st.warning("⚠️ Please select samples for both groups")
                 else:
@@ -1523,7 +1523,7 @@ def run_degs_analysis():
                         # Limit display rows
                         display_rows = min(Config.MAX_DISPLAY_ROWS, len(results_data['upregulated']))
                         display_up = results_data['upregulated'].head(display_rows)[display_cols].round(4)
-                        st.dataframe(display_up, width="stretch")
+                        st.dataframe(display_up, use_container_width=True)
                         
                         if len(results_data['upregulated']) > Config.MAX_DISPLAY_ROWS:
                             st.info(f"Showing first {Config.MAX_DISPLAY_ROWS} of {len(results_data['upregulated'])} upregulated genes. Download for full results.")
@@ -1540,7 +1540,7 @@ def run_degs_analysis():
                         # Limit display rows
                         display_rows = min(Config.MAX_DISPLAY_ROWS, len(results_data['downregulated']))
                         display_down = results_data['downregulated'].head(display_rows)[display_cols].round(4)
-                        st.dataframe(display_down, width="stretch")
+                        st.dataframe(display_down, use_container_width=True)
                         
                         if len(results_data['downregulated']) > Config.MAX_DISPLAY_ROWS:
                             st.info(f"Showing first {Config.MAX_DISPLAY_ROWS} of {len(results_data['downregulated'])} downregulated genes. Download for full results.")
@@ -1591,7 +1591,7 @@ def run_degs_analysis():
                         title_font_color='#3b82f6'
                     )
                     
-                    st.plotly_chart(fig, width="stretch")
+                    st.plotly_chart(fig, use_container_width=True)
                 except Exception as e:
                     st.warning(f"Could not generate volcano plot: {e}")
                 
@@ -1611,7 +1611,7 @@ def run_degs_analysis():
                             data=csv_all,
                             file_name=f"significant_DEGs_{timestamp}.csv",
                             mime="text/csv",
-                            width="stretch"
+                            use_container_width=True
                         )
                 
                 with col_dl2:
@@ -1622,14 +1622,14 @@ def run_degs_analysis():
                         data=csv_complete,
                         file_name=f"complete_DE_results_{timestamp}.csv",
                         mime="text/csv",
-                        width="stretch"
+                        use_container_width=True
                     )
                 
                 # Continue to pathway analysis
                 st.markdown("---")
                 st.markdown("### 🔄 Continue Analysis")
                 
-                if st.button("🚀 Continue to Pathway & Drug Analysis", type="primary", width="stretch"):
+                if st.button("🚀 Continue to Pathway & Drug Analysis", type="primary", use_container_width=True):
                     # Get top genes for pathway analysis
                     top_up = results_data['upregulated'].head(10)['Gene'].tolist() if not results_data['upregulated'].empty else []
                     top_down = results_data['downregulated'].head(10)['Gene'].tolist() if not results_data['downregulated'].empty else []
@@ -2902,7 +2902,7 @@ def run_pathway_analysis(genes_from_input=None):
                 "🚀 Start Analysis", 
                 type="primary", 
                 disabled=(not genes_from_user or not email),
-                width="stretch"
+                use_container_width=True
             )
         
         with col_btn2:
@@ -2979,7 +2979,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
             display_rows = min(Config.MAX_DISPLAY_ROWS, len(display_df))
             st.dataframe(
                 display_df.head(display_rows), 
-                width="stretch", 
+                use_container_width=True, 
                 hide_index=True,
                 column_config={
                     "Description": st.column_config.TextColumn(width="large"),
@@ -2998,7 +2998,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 data=csv_data,
                 file_name="gene_metadata.csv",
                 mime="text/csv",
-                width="stretch"
+                use_container_width=True
             )
         else:
             st.error("❌ No gene metadata could be retrieved")
@@ -3034,7 +3034,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 display_rows = min(Config.MAX_DISPLAY_ROWS, len(display_enrich))
                 st.dataframe(
                     display_enrich.head(display_rows), 
-                    width="stretch", 
+                    use_container_width=True, 
                     hide_index=True,
                     column_config={
                         "Pathway_Name": st.column_config.TextColumn(width="large"),
@@ -3066,7 +3066,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     fig.update_layout(height=600, yaxis={'categoryorder':'total ascending'})
                     fig = apply_plotly_light_theme(fig)
                     
-                    st.plotly_chart(fig, width="stretch")
+                    st.plotly_chart(fig, use_container_width=True)
                 
                 # Download
                 download_enrich = df_enrich[['Pathway_ID', 'Pathway_Name', 'Count', 'Gene_List']].copy()
@@ -3076,7 +3076,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     data=csv_data,
                     file_name="pathway_enrichment.csv",
                     mime="text/csv",
-                    width="stretch"
+                    use_container_width=True
                 )
             else:
                 st.info("ℹ️ No pathway enrichment found")
@@ -3134,7 +3134,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
             display_rows = min(Config.MAX_DISPLAY_ROWS, len(display_diseases))
             st.dataframe(
                 display_diseases.head(display_rows), 
-                width="stretch", 
+                use_container_width=True, 
                 hide_index=True,
                 column_config={
                     "Disease_Name": st.column_config.TextColumn(width="large"),
@@ -3170,7 +3170,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 )
                 
                 fig = apply_plotly_light_theme(fig)
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, use_container_width=True)
             
             # Download
             col_dl1, col_dl2 = st.columns(2)
@@ -3182,7 +3182,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     data=csv_detailed,
                     file_name="disease_associations.csv",
                     mime="text/csv",
-                    width="stretch"
+                    use_container_width=True
                 )
             
             with col_dl2:
@@ -3192,7 +3192,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     data=csv_summary,
                     file_name="disease_summary.csv",
                     mime="text/csv",
-                    width="stretch"
+                    use_container_width=True
                 )
         else:
             st.info("ℹ️ No disease associations found")
@@ -3267,7 +3267,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 display_rows = min(Config.MAX_DISPLAY_ROWS, len(display_drugs))
                 st.dataframe(
                     display_drugs.head(display_rows), 
-                    width="stretch",
+                    use_container_width=True,
                     column_config={
                         "#": st.column_config.NumberColumn(width="small"),
                         "gene": st.column_config.TextColumn("Gene", width="small"),
@@ -3305,7 +3305,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     )
                     
                     fig = apply_plotly_light_theme(fig)
-                    st.plotly_chart(fig, width="stretch")
+                    st.plotly_chart(fig, use_container_width=True)
                 
                 # Download
                 download_columns = [col for col in display_columns if col in filtered_drugs.columns]
@@ -3315,7 +3315,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     data=download_data,
                     file_name="drug_suggestions.csv",
                     mime="text/csv",
-                    width="stretch"
+                    use_container_width=True
                 )
             else:
                 st.info("ℹ️ No drugs match the filter criteria")
@@ -3368,7 +3368,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                             
                             if fig_network:
                                 fig_network = apply_plotly_light_theme(fig_network)
-                                st.plotly_chart(fig_network, width="stretch")
+                                st.plotly_chart(fig_network, use_container_width=True)
                                 
                                 # Show network statistics
                                 with st.expander("📊 Network Statistics"):
@@ -3415,7 +3415,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                             
                             if fig_pathway:
                                 fig_pathway = apply_plotly_light_theme(fig_pathway)
-                                st.plotly_chart(fig_pathway, width="stretch")
+                                st.plotly_chart(fig_pathway, use_container_width=True)
                                 
                                 # Show pathway statistics
                                 with st.expander("📊 Pathway Statistics"):
@@ -3439,7 +3439,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                                     if pathway_counts:
                                         df_pathway_counts = pd.DataFrame(pathway_counts)
                                         df_pathway_counts = df_pathway_counts.sort_values('Gene Count', ascending=False).head(5)
-                                        st.dataframe(df_pathway_counts, width="stretch", hide_index=True)
+                                        st.dataframe(df_pathway_counts, use_container_width=True, hide_index=True)
                             else:
                                 st.info("Not enough pathway data to create network visualization.")
                                 
@@ -3544,7 +3544,7 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        if st.button("Start DEGs Analysis", key="degs_btn", width="stretch"):
+        if st.button("Start DEGs Analysis", key="degs_btn", use_container_width=True):
             st.session_state.analysis_mode = 'degs_only'
             st.session_state.current_pipeline_step = 'degs'
             st.session_state.show_pathway_analysis = False
@@ -3565,7 +3565,7 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        if st.button("Start Pathway Analysis", key="pathway_btn", width="stretch"):
+        if st.button("Start Pathway Analysis", key="pathway_btn", use_container_width=True):
             st.session_state.analysis_mode = 'pathway_only'
             st.session_state.current_pipeline_step = 'pathway'
             st.session_state.show_pathway_analysis = True
