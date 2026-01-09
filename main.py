@@ -35,6 +35,8 @@ class Config:
     CACHE_TTL = 3600
     MAX_RETRIES = 3
     REQUESTS_PER_SECOND = 2
+    MAX_DISPLAY_ROWS = 500
+    MAX_NETWORK_NODES = 100
 
 class AppConfig:
     def __init__(self):
@@ -861,12 +863,18 @@ def initialize_session_state():
         st.session_state.pathway_genes = None
     if 'degs_completed' not in st.session_state:
         st.session_state.degs_completed = False
+    if 'degs_running' not in st.session_state:
+        st.session_state.degs_running = False
     if 'current_pipeline_step' not in st.session_state:
         st.session_state.current_pipeline_step = 'selection'
     if 'degs_results' not in st.session_state:
         st.session_state.degs_results = None
     if 'analysis_results' not in st.session_state:
         st.session_state.analysis_results = {}
+    if 'entrez_email_set' not in st.session_state:
+        st.session_state.entrez_email_set = False
+    if 'deseq2_run_completed' not in st.session_state:
+        st.session_state.deseq2_run_completed = False
 
 # =============================================================================
 # DEGs ANALYSIS FUNCTIONS (First Pipeline)
@@ -999,10 +1007,12 @@ def normalize_to_cpm(count_matrix):
     cpm_matrix = count_matrix.div(library_sizes, axis=1) * 1e6
     return cpm_matrix
 
-def run_pydeseq2_analysis(count_matrix, sample_group1, sample_group2, 
-                         group1_name="Control", group2_name="Treatment"):
+@st.cache_resource
+def compute_deseq2_results(_count_matrix, sample_group1, sample_group2, 
+                          group1_name="Control", group2_name="Treatment"):
     """
-    Run full DESeq2 analysis using pyDESeq2 package
+    Compute DESeq2 results using cache_resource for DeseqDataSet objects
+    Returns only the results DataFrame, not the DeseqDataSet object
     """
     try:
         # Prepare sample metadata
@@ -1015,7 +1025,7 @@ def run_pydeseq2_analysis(count_matrix, sample_group1, sample_group2,
         }, index=samples)
         
         # Select the count data for the samples
-        count_data = count_matrix[samples]
+        count_data = _count_matrix[samples]
         
         # IMPORTANT: Transpose the count matrix so that samples are rows and genes are columns
         # DESeq2 expects: rows = samples, columns = genes
@@ -1023,7 +1033,7 @@ def run_pydeseq2_analysis(count_matrix, sample_group1, sample_group2,
         
         # Create DESeqDataSet
         dds = DeseqDataSet(
-            counts=count_data_transposed,  # Now samples as rows, genes as columns
+            counts=count_data_transposed,
             metadata=metadata,
             design_factors='condition',
             ref_level=[group1_name]
@@ -1057,7 +1067,7 @@ def run_pydeseq2_analysis(count_matrix, sample_group1, sample_group2,
         results['mean_group1'] = count_data[sample_group1].mean(axis=1)
         results['mean_group2'] = count_data[sample_group2].mean(axis=1)
         
-        return results, dds
+        return results
         
     except ImportError:
         raise ImportError(
@@ -1105,33 +1115,59 @@ def calculate_differential_expression_ttest(normalized_matrix, sample_group1, sa
     return results
 
 @st.cache_data
-def cached_calculate_de(_count_matrix, sample_group1, sample_group2, logFC_threshold, 
-                        p_value_threshold, data_is_normalized, analysis_method="t-test"):
+def cached_calculate_ttest(_count_matrix, sample_group1, sample_group2, data_is_normalized):
     """
-    Cached version of differential expression analysis with method selection
+    Cached version of t-test analysis
     """
-    if analysis_method == "DESeq2" and not data_is_normalized:
-        # Run full DESeq2 analysis
-        results, dds = run_pydeseq2_analysis(
-            _count_matrix, sample_group1, sample_group2
-        )
-        # Store the DESeq2 object for later use if needed
-        st.session_state.deseq2_object = dds
-    elif data_is_normalized:
+    if data_is_normalized:
         # Use t-test on already normalized data
         results = calculate_differential_expression_ttest(
             _count_matrix, sample_group1, sample_group2
         )
     else:
-        # If data is not normalized but user selected t-test, apply CPM normalization
+        # If data is not normalized, apply CPM normalization
         analysis_matrix = normalize_to_cpm(_count_matrix)
         results = calculate_differential_expression_ttest(
             analysis_matrix, sample_group1, sample_group2
         )
     
-    upregulated, downregulated = filter_and_sort_degs(results, logFC_threshold, p_value_threshold)
+    return results
+
+def run_differential_expression_analysis(count_matrix, sample_group1, sample_group2,
+                                        data_is_normalized, analysis_method="t-test",
+                                        use_caching=True):
+    """
+    Main function to run differential expression analysis with proper caching
+    """
+    if analysis_method == "DESeq2" and not data_is_normalized:
+        if use_caching:
+            # Use cached DESeq2 computation
+            results = compute_deseq2_results(
+                count_matrix, sample_group1, sample_group2
+            )
+        else:
+            # Non-cached DESeq2
+            results = compute_deseq2_results(
+                count_matrix, sample_group1, sample_group2
+            )
+    else:
+        # Use t-test (with caching if enabled)
+        if use_caching:
+            results = cached_calculate_ttest(
+                count_matrix, sample_group1, sample_group2, data_is_normalized
+            )
+        else:
+            if data_is_normalized:
+                results = calculate_differential_expression_ttest(
+                    count_matrix, sample_group1, sample_group2
+                )
+            else:
+                normalized_matrix = normalize_to_cpm(count_matrix)
+                results = calculate_differential_expression_ttest(
+                    normalized_matrix, sample_group1, sample_group2
+                )
     
-    return results, upregulated, downregulated
+    return results
 
 def run_degs_analysis():
     """Run the DEGs analysis pipeline"""
@@ -1190,11 +1226,12 @@ def run_degs_analysis():
                 
                 st.success(f"✅ Data loaded: {count_matrix.shape[0]:,} genes, {count_matrix.shape[1]} samples")
                 
-                # Data preview
+                # Data preview - limit display rows
                 with st.expander("📋 Data Preview"):
                     col_preview1, col_preview2 = st.columns(2)
                     with col_preview1:
-                        st.dataframe(count_matrix.head(), width="stretch")
+                        display_rows = min(10, len(count_matrix))
+                        st.dataframe(count_matrix.head(display_rows), width="stretch")
                     with col_preview2:
                         st.metric("Rows (Genes)", count_matrix.shape[0])
                         st.metric("Columns (Samples)", count_matrix.shape[1])
@@ -1326,29 +1363,9 @@ def run_degs_analysis():
                     help="Maximum p-value for significance"
                 )
             
-            # DESeq2 specific settings (if selected)
-            if not st.session_state.data_is_normalized and analysis_method == "DESeq2":
-                st.subheader("DESeq2 Settings")
-                col_deseq1, col_deseq2 = st.columns(2)
-                
-                with col_deseq1:
-                    independent_filtering = st.checkbox(
-                        "Independent filtering",
-                        value=True,
-                        help="Filter genes with low counts to improve multiple testing correction"
-                    )
-                
-                with col_deseq2:
-                    cooks_cutoff = st.checkbox(
-                        "Cook's distance outlier detection",
-                        value=True,
-                        help="Identify and handle outliers using Cook's distance"
-                    )
-            
             # Performance settings
             st.subheader("Performance Settings")
             use_caching = st.checkbox("Enable caching", value=True)
-            show_details = st.checkbox("Show detailed results", value=False)
             
             # Run analysis button
             st.markdown("---")
@@ -1372,6 +1389,7 @@ def run_degs_analysis():
                             'use_caching': use_caching,
                             'analysis_method': analysis_method
                         }
+                        st.session_state.degs_running = True
                         st.rerun()
         else:
             st.info("📤 Please upload data in the 'Upload Data' tab first")
@@ -1386,106 +1404,83 @@ def run_degs_analysis():
             params = st.session_state.analysis_params
             count_matrix = st.session_state.count_matrix
             
-            # Setup progress
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            with st.spinner("🔬 Analyzing differential expression..."):
-                # Update progress
-                status_text.text("Initializing analysis...")
-                progress_bar.progress(10)
+            # Run analysis if not already completed
+            if st.session_state.degs_running and not st.session_state.degs_completed:
+                # Setup progress
+                progress_bar = st.progress(0)
+                status_text = st.empty()
                 
-                try:
-                    # Get analysis method
-                    analysis_method = params['analysis_method']
+                with st.spinner("🔬 Analyzing differential expression..."):
+                    # Update progress
+                    status_text.text("Initializing analysis...")
+                    progress_bar.progress(10)
                     
-                    # Perform analysis
-                    if params['use_caching']:
-                        results, upregulated, downregulated = cached_calculate_de(
+                    try:
+                        # Get analysis method
+                        analysis_method = params['analysis_method']
+                        
+                        # Perform analysis
+                        status_text.text(f"Running {analysis_method} analysis...")
+                        progress_bar.progress(30)
+                        
+                        results = run_differential_expression_analysis(
                             count_matrix,
                             params['group1_samples'],
                             params['group2_samples'],
-                            params['logFC_threshold'],
-                            params['p_value_threshold'],
                             st.session_state.data_is_normalized,
-                            analysis_method
+                            analysis_method,
+                            params['use_caching']
                         )
-                    else:
-                        # Non-cached version
-                        if analysis_method == "DESeq2" and not st.session_state.data_is_normalized:
-                            # Run DESeq2
-                            status_text.text("Running DESeq2 analysis...")
-                            progress_bar.progress(30)
-                            results, dds = run_pydeseq2_analysis(
-                                count_matrix,
-                                params['group1_samples'],
-                                params['group2_samples'],
-                                params['group1_name'],
-                                params['group2_name']
-                            )
-                            st.session_state.deseq2_object = dds
-                        elif st.session_state.data_is_normalized:
-                            # Use t-test on normalized data
-                            status_text.text("Running t-test on normalized data...")
-                            progress_bar.progress(30)
-                            results = calculate_differential_expression_ttest(
-                                count_matrix,
-                                params['group1_samples'],
-                                params['group2_samples']
-                            )
-                        else:
-                            # Use CPM + t-test
-                            status_text.text("Normalizing with CPM...")
-                            progress_bar.progress(30)
-                            normalized_matrix = normalize_to_cpm(count_matrix)
-                            results = calculate_differential_expression_ttest(
-                                normalized_matrix,
-                                params['group1_samples'],
-                                params['group2_samples']
-                            )
                         
                         status_text.text("Filtering significant genes...")
                         progress_bar.progress(70)
+                        
+                        # Apply filtering outside of cached function
                         upregulated, downregulated = filter_and_sort_degs(
                             results,
                             params['logFC_threshold'],
                             params['p_value_threshold']
                         )
-                    
-                    progress_bar.progress(100)
-                    status_text.text("✅ Analysis complete!")
-                    time.sleep(0.5)
-                    
-                    # Clear progress
-                    progress_bar.empty()
-                    status_text.empty()
-                    
-                    # Store results
-                    st.session_state.degs_results = {
-                        'results': results,
-                        'upregulated': upregulated,
-                        'downregulated': downregulated,
-                        'params': params,
-                        'data_is_normalized': st.session_state.data_is_normalized,
-                        'analysis_method': analysis_method
-                    }
-                    st.session_state.degs_completed = True
-                    
-                except ImportError as e:
-                    st.error(f"""
-                    ❌ **pyDESeq2 not installed**
-                    
-                    To use DESeq2 analysis, please install pyDESeq2:
-                    
-                    ```bash
-                    pip install pydeseq2
-                    ```
-                    
-                    Then restart the application.
-                    """)
-                    return
-                except Exception as e:
-                    st.error(f"❌ Analysis failed: {str(e)}")
+                        
+                        progress_bar.progress(100)
+                        status_text.text("✅ Analysis complete!")
+                        time.sleep(0.5)
+                        
+                        # Clear progress
+                        progress_bar.empty()
+                        status_text.empty()
+                        
+                        # Store results in session state
+                        st.session_state.degs_results = {
+                            'results': results,
+                            'upregulated': upregulated,
+                            'downregulated': downregulated,
+                            'params': params,
+                            'data_is_normalized': st.session_state.data_is_normalized,
+                            'analysis_method': analysis_method
+                        }
+                        st.session_state.degs_completed = True
+                        st.session_state.degs_running = False
+                        st.session_state.deseq2_run_completed = True
+                        
+                    except ImportError as e:
+                        st.error(f"""
+                        ❌ **pyDESeq2 not installed**
+                        
+                        To use DESeq2 analysis, please install pyDESeq2:
+                        
+                        ```bash
+                        pip install pydeseq2
+                        ```
+                        
+                        Then restart the application.
+                        """)
+                        st.session_state.degs_running = False
+                        return
+                    except Exception as e:
+                        st.error(f"❌ Analysis failed: {str(e)}")
+                        st.session_state.degs_running = False
+                        return
             
             # Display results if available
             if st.session_state.degs_completed and st.session_state.degs_results:
@@ -1513,7 +1508,7 @@ def run_degs_analysis():
                 else:
                     st.info(f"📊 **Analysis Method:** {results_data['analysis_method']}")
                 
-                # Gene tables
+                # Gene tables - limit display rows
                 st.markdown("### 🧬 Top Differentially Expressed Genes")
                 
                 tab_up, tab_down = st.tabs(["⬆️ Upregulated", "⬇️ Downregulated"])
@@ -1525,8 +1520,13 @@ def run_degs_analysis():
                         if 'adj_p_value' in results_data['upregulated'].columns:
                             display_cols.append('adj_p_value')
                         
-                        display_up = results_data['upregulated'].head(10)[display_cols].round(4)
+                        # Limit display rows
+                        display_rows = min(Config.MAX_DISPLAY_ROWS, len(results_data['upregulated']))
+                        display_up = results_data['upregulated'].head(display_rows)[display_cols].round(4)
                         st.dataframe(display_up, width="stretch")
+                        
+                        if len(results_data['upregulated']) > Config.MAX_DISPLAY_ROWS:
+                            st.info(f"Showing first {Config.MAX_DISPLAY_ROWS} of {len(results_data['upregulated'])} upregulated genes. Download for full results.")
                     else:
                         st.info("No upregulated genes found")
                 
@@ -1537,51 +1537,35 @@ def run_degs_analysis():
                         if 'adj_p_value' in results_data['downregulated'].columns:
                             display_cols.append('adj_p_value')
                         
-                        display_down = results_data['downregulated'].head(10)[display_cols].round(4)
+                        # Limit display rows
+                        display_rows = min(Config.MAX_DISPLAY_ROWS, len(results_data['downregulated']))
+                        display_down = results_data['downregulated'].head(display_rows)[display_cols].round(4)
                         st.dataframe(display_down, width="stretch")
+                        
+                        if len(results_data['downregulated']) > Config.MAX_DISPLAY_ROWS:
+                            st.info(f"Showing first {Config.MAX_DISPLAY_ROWS} of {len(results_data['downregulated'])} downregulated genes. Download for full results.")
                     else:
                         st.info("No downregulated genes found")
                 
-                # Additional DESeq2 stats if available
-                if results_data['analysis_method'] == "DESeq2" and 'deseq2_object' in st.session_state:
-                    with st.expander("📊 DESeq2 Model Statistics"):
-                        try:
-                            dds = st.session_state.deseq2_object
-                            
-                            col_stat1, col_stat2, col_stat3 = st.columns(3)
-                            
-                            with col_stat1:
-                                # Dispersion estimates
-                                st.metric("Median Dispersion", f"{np.median(dds.varm['dispersions']):.3f}")
-                            
-                            with col_stat2:
-                                # Size factors
-                                st.metric("Size Factor Range", 
-                                         f"{dds.obs['size_factors'].min():.2f}-{dds.obs['size_factors'].max():.2f}")
-                            
-                            with col_stat3:
-                                # Cook's distance outliers
-                                if 'cooks' in dds.layers:
-                                    cooks = dds.layers['cooks']
-                                    outlier_count = np.sum(cooks > 10)  # Typical DESeq2 cutoff
-                                    st.metric("Potential Outliers", outlier_count)
-                        except:
-                            st.info("Detailed DESeq2 statistics not available")
-                
-                # Volcano plot
+                # Volcano plot with protection against log(0) errors
                 st.markdown("### 🌋 Volcano Plot")
                 try:
                     plot_data = results_data['results'].copy()
                     
                     # Use adjusted p-value if available, otherwise use raw p-value
                     if 'adj_p_value' in plot_data.columns:
-                        plot_data['-log10(p_value)'] = -np.log10(plot_data['adj_p_value'])
+                        pval_col = 'adj_p_value'
                         pval_label = "Adjusted p-value"
                     else:
-                        plot_data['-log10(p_value)'] = -np.log10(plot_data['p_value'])
+                        pval_col = 'p_value'
                         pval_label = "p-value"
                     
-                    plot_data['Significant'] = (np.abs(plot_data['logFC']) > params['logFC_threshold']) & (plot_data['p_value'] < params['p_value_threshold'])
+                    # Clip p-values to avoid log(0) errors
+                    min_pval = 1e-300  # Smallest safe value for log10
+                    plot_data['pval_clipped'] = plot_data[pval_col].clip(lower=min_pval)
+                    plot_data['-log10(p_value)'] = -np.log10(plot_data['pval_clipped'])
+                    
+                    plot_data['Significant'] = (np.abs(plot_data['logFC']) > params['logFC_threshold']) & (plot_data[pval_col] < params['p_value_threshold'])
                     
                     fig = px.scatter(
                         plot_data,
@@ -1615,7 +1599,7 @@ def run_degs_analysis():
                 st.markdown("### 📥 Download Results")
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 
-                col_dl1, col_dl2, col_dl3 = st.columns(3)
+                col_dl1, col_dl2 = st.columns(2)
                 
                 with col_dl1:
                     # All DEGs
@@ -1640,27 +1624,6 @@ def run_degs_analysis():
                         mime="text/csv",
                         width="stretch"
                     )
-                
-                with col_dl3:
-                    # DESeq2 normalized counts if available
-                    if results_data['analysis_method'] == "DESeq2" and 'deseq2_object' in st.session_state:
-                        try:
-                            dds = st.session_state.deseq2_object
-                            norm_counts = pd.DataFrame(
-                                dds.layers['normed_counts'],
-                                index=count_matrix.index,
-                                columns=count_matrix.columns
-                            )
-                            csv_norm = norm_counts.to_csv()
-                            st.download_button(
-                                label="Download DESeq2 Normalized Counts",
-                                data=csv_norm,
-                                file_name=f"deseq2_normalized_counts_{timestamp}.csv",
-                                mime="text/csv",
-                                width="stretch"
-                            )
-                        except:
-                            pass
                 
                 # Continue to pathway analysis
                 st.markdown("---")
@@ -2145,8 +2108,9 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
         return pd.DataFrame()
 
 # Enhanced Core Functions
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
-                                 kegg_org_prefix: str, progress_bar=None):
+                                 kegg_org_prefix: str):
     """Enhanced metadata fetch with better progress tracking"""
     results = []
     pathway_to_genes = defaultdict(set)
@@ -2154,9 +2118,6 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
     total_genes = len(gene_list)
     
     for i, gene in enumerate(gene_list, start=1):
-        if progress_bar:
-            progress_bar.progress(i / total_genes, text=f"Processing {gene} ({i}/{total_genes})")
-            
         try:
             # NCBI gene search
             ids = ncbi_esearch_gene_ids(gene, organism_entrez)
@@ -2204,8 +2165,8 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
                 "Status": f"Found {len(pids)} pathways" if pids else "No pathways"
             })
             
-            # Rate limiting
-            time.sleep(0.1)
+            # Reduced sleep time
+            time.sleep(0.05)
             
         except Exception as e:
             logger.error(f"Error processing {gene}: {e}")
@@ -2217,8 +2178,9 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
                 "Status": "Error"
             })
     
-    return pd.DataFrame(results), pathway_to_genes
+    return pd.DataFrame(results), dict(pathway_to_genes)
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
     """Enhanced enrichment computation with better sorting"""
     if not pathway_to_genes:
@@ -2254,11 +2216,12 @@ def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens")
                 logger.info(f"Mapped {g} to {hit.get('id')}")
             else:
                 logger.warning(f"No target found for {g}")
-            time.sleep(0.05)
+            time.sleep(0.05)  # Reduced sleep time
         except Exception as e:
             logger.error(f"Error mapping {g}: {e}")
     return g2t
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
     """Enhanced disease collection with better error handling"""
     frames = []
@@ -2274,7 +2237,7 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
                 df.insert(0, "gene", g)
                 df.insert(1, "gene_symbol", tgt.get("approvedSymbol", g))
                 frames.append(df)
-            time.sleep(0.05)
+            time.sleep(0.05)  # Reduced sleep time
         except Exception as e:
             logger.error(f"Error collecting diseases for {g}: {e}")
     
@@ -2286,6 +2249,7 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
     
     return pd.DataFrame(columns=["gene", "gene_symbol", "target", "disease_id", "disease_name", "association_score", "therapeutic_areas"])
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
     """Fixed: Enhanced drug collection with better filtering"""
     frames = []
@@ -2304,7 +2268,7 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
                 logger.info(f"Found {len(df)} drugs for {g}")
             else:
                 logger.info(f"No drugs found for {g}")
-            time.sleep(0.05)
+            time.sleep(0.05)  # Reduced sleep time
         except Exception as e:
             logger.error(f"Error collecting drugs for {g}: {e}")
     
@@ -2317,9 +2281,14 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
     logger.warning("No drugs collected from any target")
     return pd.DataFrame()
 
-# Network Visualization Functions
+# Network Visualization Functions with size limits
 def create_gene_disease_drug_network(df_diseases, df_drugs):
     """Create a gene-disease-drug network visualization with distinct colors"""
+    
+    # Check node count limits
+    if len(df_diseases) > Config.MAX_NETWORK_NODES or len(df_drugs) > Config.MAX_NETWORK_NODES:
+        logger.warning(f"Network too large for visualization. Skipping.")
+        return None
     
     # Create network graph
     G = nx.Graph()
@@ -2373,7 +2342,7 @@ def create_gene_disease_drug_network(df_diseases, df_drugs):
                 drug_nodes.add(drug_id)
     
     # Check if we have enough nodes
-    if len(G.nodes()) < 3:
+    if len(G.nodes()) < 3 or len(G.nodes()) > Config.MAX_NETWORK_NODES:
         return None
     
     # Create positions using spring layout
@@ -2544,6 +2513,12 @@ def create_gene_pathway_interaction_network(pathway_to_genes, kegg_org_prefix):
         reverse=True
     )[:8]  # Top 8 pathways
     
+    # Check total node count
+    total_genes = sum(len(genes) for _, genes in top_pathways[:15])  # Limit genes per pathway
+    if total_genes > Config.MAX_NETWORK_NODES:
+        logger.warning(f"Network too large ({total_genes} nodes). Skipping.")
+        return None
+    
     # Create network graph
     G = nx.Graph()
     
@@ -2573,7 +2548,7 @@ def create_gene_pathway_interaction_network(pathway_to_genes, kegg_org_prefix):
             gene_nodes.add(gene_node)
     
     # Check if we have enough nodes
-    if len(G.nodes()) < 3:
+    if len(G.nodes()) < 3 or len(G.nodes()) > Config.MAX_NETWORK_NODES:
         return None
     
     # Create positions using spring layout
@@ -2758,6 +2733,13 @@ def validate_gene_list(genes: List[str]) -> Tuple[bool, str]:
     
     return True, "Valid"
 
+def set_entrez_email(email: str):
+    """Set Entrez.email only once per session"""
+    if not st.session_state.entrez_email_set:
+        Entrez.email = email
+        st.session_state.entrez_email_set = True
+        logger.info("Entrez.email set for session")
+
 def run_pathway_analysis(genes_from_input=None):
     """Run the pathway enrichment and drug discovery pipeline"""
     
@@ -2934,7 +2916,7 @@ def run_pathway_analysis(genes_from_input=None):
         run_analysis = False
     
     if run_analysis and email:
-        Entrez.email = email
+        set_entrez_email(email)
         run_pathway_analysis_with_genes(genes_from_user, organism_entrez, kegg_org_prefix, 
                                        opt_only_phase4, show_investigational)
 
@@ -2963,11 +2945,9 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
         
         if 'metadata' not in st.session_state.analysis_results:
             with st.spinner("🔍 Fetching gene metadata and pathways..."):
-                progress_bar = st.progress(0)
                 df_meta, pathway_to_genes = fetch_gene_metadata_and_kegg(
-                    genes_from_input, organism_entrez, kegg_org_prefix, progress_bar
+                    genes_from_input, organism_entrez, kegg_org_prefix
                 )
-                progress_bar.empty()
             
             st.session_state.analysis_results['metadata'] = df_meta
             st.session_state.analysis_results['pathways'] = pathway_to_genes
@@ -2991,13 +2971,14 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 total_pathways = len(pathway_to_genes)
                 st.metric("Unique Pathways", total_pathways)
             
-            # Data table
+            # Data table - limit display rows
             st.markdown("### Gene Details")
             display_df = df_meta.copy()
             display_df.insert(0, "#", range(1, len(display_df) + 1))
             
+            display_rows = min(Config.MAX_DISPLAY_ROWS, len(display_df))
             st.dataframe(
-                display_df, 
+                display_df.head(display_rows), 
                 width="stretch", 
                 hide_index=True,
                 column_config={
@@ -3006,6 +2987,9 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     "Status": st.column_config.TextColumn(width="small")
                 }
             )
+            
+            if len(df_meta) > Config.MAX_DISPLAY_ROWS:
+                st.info(f"Showing first {Config.MAX_DISPLAY_ROWS} of {len(df_meta)} genes. Download for full results.")
             
             # Download
             csv_data = df_meta.to_csv(index=False).encode("utf-8")
@@ -3042,13 +3026,14 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     avg_genes = df_enrich['Count'].mean() if not df_enrich.empty else 0
                     st.metric("Avg Genes/Pathway", f"{avg_genes:.1f}")
                 
-                # Data table
+                # Data table - limit display rows
                 st.markdown("### Enriched Pathways")
                 display_enrich = df_enrich[['Pathway_ID', 'Pathway_Name', 'Count', 'Gene_List']].copy()
                 display_enrich.insert(0, "#", range(1, len(display_enrich) + 1))
                 
+                display_rows = min(Config.MAX_DISPLAY_ROWS, len(display_enrich))
                 st.dataframe(
-                    display_enrich, 
+                    display_enrich.head(display_rows), 
                     width="stretch", 
                     hide_index=True,
                     column_config={
@@ -3057,6 +3042,9 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                         "Count": st.column_config.NumberColumn(width="small")
                     }
                 )
+                
+                if len(df_enrich) > Config.MAX_DISPLAY_ROWS:
+                    st.info(f"Showing first {Config.MAX_DISPLAY_ROWS} of {len(df_enrich)} pathways. Download for full results.")
                 
                 # Visualization
                 if len(df_enrich) > 0:
@@ -3139,12 +3127,13 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
             disease_summary.columns = ['Disease_ID', 'Disease_Name', 'Therapeutic_Areas', 'Gene_Count', 'Max_Score', 'Avg_Score']
             disease_summary = disease_summary.sort_values(['Gene_Count', 'Max_Score'], ascending=[False, False])
             
-            # Display
+            # Display - limit rows
             display_diseases = disease_summary.copy()
             display_diseases.insert(0, "#", range(1, len(display_diseases) + 1))
             
+            display_rows = min(Config.MAX_DISPLAY_ROWS, len(display_diseases))
             st.dataframe(
-                display_diseases, 
+                display_diseases.head(display_rows), 
                 width="stretch", 
                 hide_index=True,
                 column_config={
@@ -3154,6 +3143,9 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     "Avg_Score": st.column_config.NumberColumn(format="%.3f")
                 }
             )
+            
+            if len(disease_summary) > Config.MAX_DISPLAY_ROWS:
+                st.info(f"Showing first {Config.MAX_DISPLAY_ROWS} of {len(disease_summary)} diseases. Download for full results.")
             
             # Visualization
             if len(disease_summary) > 0:
@@ -3205,7 +3197,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
         else:
             st.info("ℹ️ No disease associations found")
     
-    # Drug Suggestions - FIXED SECTION
+    # Drug Suggestions
     with tab_drug:
         st.markdown('<div class="section-title">Therapeutic Drug Discovery</div>', unsafe_allow_html=True)
         
@@ -3240,12 +3232,11 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 ]
             
             if not filtered_drugs.empty:
-                # Calculate metrics - FIXED
-                # Use max_phase_numeric instead of phase_numeric for better accuracy
+                # Calculate metrics
                 valid_max_phases = filtered_drugs[filtered_drugs['max_phase_numeric'] > 0]['max_phase_numeric']
                 avg_phase = valid_max_phases.mean() if len(valid_max_phases) > 0 else 0
                 
-                # Summary - FIXED
+                # Summary
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
@@ -3257,14 +3248,13 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 with col3:
                     st.metric("Avg Phase", f"{avg_phase:.1f}")
                 with col4:
-                    # Count drugs that have reached phase 4 (approved) in either current phase or max phase
                     approved_drugs = len(filtered_drugs[
                         (filtered_drugs['phase_numeric'] >= 4) | 
                         (filtered_drugs['max_phase_numeric'] >= 4)
                     ])
                     st.metric("Approved Drugs", approved_drugs)
                 
-                # Data table
+                # Data table - limit display rows
                 display_columns = [
                     'gene', 'gene_symbol', 'drug_id', 'drug_name', 'drug_type', 
                     'phase', 'status', 'max_phase', 'moa', 'disease_name', 'therapeutic_areas'
@@ -3274,8 +3264,9 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                 display_drugs = filtered_drugs[available_columns].copy()
                 display_drugs.insert(0, "#", range(1, len(display_drugs) + 1))
                 
+                display_rows = min(Config.MAX_DISPLAY_ROWS, len(display_drugs))
                 st.dataframe(
-                    display_drugs, 
+                    display_drugs.head(display_rows), 
                     width="stretch",
                     column_config={
                         "#": st.column_config.NumberColumn(width="small"),
@@ -3291,6 +3282,9 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                         "therapeutic_areas": st.column_config.TextColumn("Areas", width="medium"),
                     }
                 )
+                
+                if len(filtered_drugs) > Config.MAX_DISPLAY_ROWS:
+                    st.info(f"Showing first {Config.MAX_DISPLAY_ROWS} of {len(filtered_drugs)} drugs. Download for full results.")
                 
                 # Visualization
                 if len(filtered_drugs) > 0:
@@ -3350,13 +3344,14 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                         df_diseases = st.session_state.analysis_results['diseases']
                         df_drugs = st.session_state.analysis_results.get('drugs', pd.DataFrame())
                         
-                        fig_network = create_gene_disease_drug_network(df_diseases, df_drugs)
+                        # Check if network size is manageable
+                        total_nodes_estimate = df_diseases['gene'].nunique() + df_diseases['disease_name'].nunique()
+                        if df_drugs is not None and not df_drugs.empty:
+                            total_nodes_estimate += df_drugs['drug_name'].nunique()
                         
-                        if fig_network:
-                            fig_network = apply_plotly_light_theme(fig_network)
-                            st.plotly_chart(fig_network, width="stretch")
-                            
-                            # Show network statistics
+                        if total_nodes_estimate > Config.MAX_NETWORK_NODES:
+                            st.warning(f"⚠️ Network too large ({total_nodes_estimate} estimated nodes). Showing summary instead.")
+                            # Show summary instead
                             with st.expander("📊 Network Statistics"):
                                 col_stat1, col_stat2, col_stat3 = st.columns(3)
                                 with col_stat1:
@@ -3369,8 +3364,27 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                                     unique_drugs = df_drugs['drug_name'].nunique() if not df_drugs.empty else 0
                                     st.metric("Drugs", unique_drugs)
                         else:
-                            st.info("Not enough data to create network visualization. Try with more genes.")
+                            fig_network = create_gene_disease_drug_network(df_diseases, df_drugs)
                             
+                            if fig_network:
+                                fig_network = apply_plotly_light_theme(fig_network)
+                                st.plotly_chart(fig_network, width="stretch")
+                                
+                                # Show network statistics
+                                with st.expander("📊 Network Statistics"):
+                                    col_stat1, col_stat2, col_stat3 = st.columns(3)
+                                    with col_stat1:
+                                        unique_genes = df_diseases['gene'].nunique()
+                                        st.metric("Unique Genes", unique_genes)
+                                    with col_stat2:
+                                        unique_diseases = df_diseases['disease_name'].nunique()
+                                        st.metric("Diseases", unique_diseases)
+                                    with col_stat3:
+                                        unique_drugs = df_drugs['drug_name'].nunique() if not df_drugs.empty else 0
+                                        st.metric("Drugs", unique_drugs)
+                            else:
+                                st.info("Not enough data to create network visualization. Try with more genes.")
+                                
                     except Exception as e:
                         st.error(f"Error creating gene-disease-drug network: {e}")
             
@@ -3383,38 +3397,52 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
                     try:
                         pathway_to_genes = st.session_state.analysis_results['pathways']
                         
-                        fig_pathway = create_gene_pathway_interaction_network(pathway_to_genes, kegg_org_prefix)
-                        
-                        if fig_pathway:
-                            fig_pathway = apply_plotly_light_theme(fig_pathway)
-                            st.plotly_chart(fig_pathway, width="stretch")
-                            
-                            # Show pathway statistics
+                        # Check if network size is manageable
+                        total_genes = sum(len(genes) for genes in pathway_to_genes.values())
+                        if total_genes > Config.MAX_NETWORK_NODES:
+                            st.warning(f"⚠️ Network too large ({total_genes} genes). Showing summary instead.")
+                            # Show summary instead
                             with st.expander("📊 Pathway Statistics"):
                                 col_stat1, col_stat2 = st.columns(2)
                                 with col_stat1:
                                     total_pathways = len(pathway_to_genes)
                                     st.metric("Total Pathways", total_pathways)
                                 with col_stat2:
-                                    avg_genes = sum(len(genes) for genes in pathway_to_genes.values()) / max(1, total_pathways)
+                                    avg_genes = total_genes / max(1, total_pathways)
                                     st.metric("Avg Genes/Pathway", f"{avg_genes:.1f}")
-                                
-                                # Show top pathways
-                                pathway_counts = []
-                                for pid, genes in pathway_to_genes.items():
-                                    pathway_name = kegg_pathway_name(pid) or pid.replace("path:", "")
-                                    pathway_counts.append({
-                                        'Pathway': pathway_name[:50] + "..." if len(pathway_name) > 50 else pathway_name,
-                                        'Gene Count': len(genes)
-                                    })
-                                
-                                if pathway_counts:
-                                    df_pathway_counts = pd.DataFrame(pathway_counts)
-                                    df_pathway_counts = df_pathway_counts.sort_values('Gene Count', ascending=False).head(5)
-                                    st.dataframe(df_pathway_counts, width="stretch", hide_index=True)
                         else:
-                            st.info("Not enough pathway data to create network visualization.")
+                            fig_pathway = create_gene_pathway_interaction_network(pathway_to_genes, kegg_org_prefix)
                             
+                            if fig_pathway:
+                                fig_pathway = apply_plotly_light_theme(fig_pathway)
+                                st.plotly_chart(fig_pathway, width="stretch")
+                                
+                                # Show pathway statistics
+                                with st.expander("📊 Pathway Statistics"):
+                                    col_stat1, col_stat2 = st.columns(2)
+                                    with col_stat1:
+                                        total_pathways = len(pathway_to_genes)
+                                        st.metric("Total Pathways", total_pathways)
+                                    with col_stat2:
+                                        avg_genes = total_genes / max(1, total_pathways)
+                                        st.metric("Avg Genes/Pathway", f"{avg_genes:.1f}")
+                                    
+                                    # Show top pathways
+                                    pathway_counts = []
+                                    for pid, genes in pathway_to_genes.items():
+                                        pathway_name = kegg_pathway_name(pid) or pid.replace("path:", "")
+                                        pathway_counts.append({
+                                            'Pathway': pathway_name[:50] + "..." if len(pathway_name) > 50 else pathway_name,
+                                            'Gene Count': len(genes)
+                                        })
+                                    
+                                    if pathway_counts:
+                                        df_pathway_counts = pd.DataFrame(pathway_counts)
+                                        df_pathway_counts = df_pathway_counts.sort_values('Gene Count', ascending=False).head(5)
+                                        st.dataframe(df_pathway_counts, width="stretch", hide_index=True)
+                            else:
+                                st.info("Not enough pathway data to create network visualization.")
+                                
                     except Exception as e:
                         st.error(f"Error creating gene-pathway network: {e}")
             
@@ -3521,6 +3549,7 @@ def main():
             st.session_state.current_pipeline_step = 'degs'
             st.session_state.show_pathway_analysis = False
             st.session_state.degs_completed = False
+            st.session_state.degs_running = False
             st.rerun()
     
     with col2:
@@ -3541,6 +3570,7 @@ def main():
             st.session_state.current_pipeline_step = 'pathway'
             st.session_state.show_pathway_analysis = True
             st.session_state.degs_completed = False
+            st.session_state.degs_running = False
             st.rerun()
     
     # Display appropriate pipeline
