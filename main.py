@@ -799,6 +799,55 @@ def get_light_theme_css():
 st.markdown(get_light_theme_css(), unsafe_allow_html=True)
 
 # =============================================================================
+# DATA VALIDATION AND CLEANING FUNCTIONS
+# =============================================================================
+
+def validate_and_clean_count_matrix(count_matrix):
+    """
+    Validate and clean count matrix before analysis
+    """
+    # Create a copy to avoid modifying original
+    cleaned_matrix = count_matrix.copy()
+    
+    # Check for duplicates
+    duplicates = cleaned_matrix.index.duplicated().sum()
+    if duplicates > 0:
+        st.warning(f"Found {duplicates} duplicate gene identifiers. Making them unique...")
+        
+        # Make duplicates unique
+        unique_index = []
+        gene_counts = {}
+        
+        for gene in cleaned_matrix.index:
+            if gene not in gene_counts:
+                gene_counts[gene] = 1
+                unique_index.append(gene)
+            else:
+                gene_counts[gene] += 1
+                unique_index.append(f"{gene}_dup{gene_counts[gene]}")
+        
+        cleaned_matrix.index = unique_index
+    
+    # Check for missing values
+    nan_count = cleaned_matrix.isna().sum().sum()
+    if nan_count > 0:
+        st.warning(f"Found {nan_count} NaN values. Replacing with zeros...")
+        cleaned_matrix = cleaned_matrix.fillna(0)
+    
+    # Check for negative values (shouldn't exist in count data)
+    negative_count = (cleaned_matrix < 0).sum().sum()
+    if negative_count > 0:
+        st.warning(f"Found {negative_count} negative values. Taking absolute values...")
+        cleaned_matrix = cleaned_matrix.abs()
+    
+    # Check for all-zero rows
+    zero_rows = (cleaned_matrix.sum(axis=1) == 0).sum()
+    if zero_rows > 0:
+        st.info(f"Found {zero_rows} genes with zero counts across all samples")
+    
+    return cleaned_matrix
+
+# =============================================================================
 # SESSION STATE INITIALIZATION
 # =============================================================================
 
@@ -930,6 +979,11 @@ def check_data_quality(count_matrix, group1_samples, group2_samples):
     negative_count = (count_matrix[group1_samples + group2_samples] < 0).sum().sum()
     if negative_count > 0:
         quality_issues.append(f"Found {negative_count} negative values in the data")
+    
+    # Check for duplicate indices
+    duplicate_genes = count_matrix.index.duplicated().sum()
+    if duplicate_genes > 0:
+        quality_issues.append(f"Found {duplicate_genes} duplicate gene identifiers")
     
     return quality_issues
 
@@ -1131,6 +1185,9 @@ def run_degs_analysis():
                 else:
                     count_matrix = pd.read_csv(uploaded_file, sep='\t', index_col=0)
                 
+                # Validate and clean the data
+                count_matrix = validate_and_clean_count_matrix(count_matrix)
+                
                 st.success(f"✅ Data loaded: {count_matrix.shape[0]:,} genes, {count_matrix.shape[1]} samples")
                 
                 # Data preview
@@ -1167,6 +1224,33 @@ def run_degs_analysis():
         # Check if count matrix exists in session state
         if 'count_matrix' in st.session_state and st.session_state.count_matrix is not None:
             count_matrix = st.session_state.count_matrix
+            
+            # Data quality check section
+            st.subheader("🔍 Data Quality Check")
+            
+            duplicates = count_matrix.index.duplicated().sum()
+            if duplicates > 0:
+                st.error(f"❌ Found {duplicates} duplicate gene identifiers!")
+            else:
+                st.success("✅ All gene identifiers are unique")
+            
+            # Show other quality metrics
+            col_qual1, col_qual2, col_qual3 = st.columns(3)
+            
+            with col_qual1:
+                st.metric("Total Genes", len(count_matrix))
+            
+            with col_qual2:
+                zeros = (count_matrix == 0).sum().sum()
+                total = count_matrix.size
+                zero_pct = (zeros / total) * 100 if total > 0 else 0
+                st.metric("Zero Values", f"{zero_pct:.1f}%")
+            
+            with col_qual3:
+                nans = count_matrix.isna().sum().sum()
+                st.metric("NaN Values", nans)
+            
+            st.markdown("---")
             
             # Sample group configuration
             col1, col2 = st.columns(2)
