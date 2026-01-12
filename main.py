@@ -1705,6 +1705,45 @@ class RateLimitedSession:
 kegg_session = RateLimitedSession(requests_per_second=1)
 ot_session = RateLimitedSession(requests_per_second=3)
 
+# Retry decorator for API calls
+def with_retry(func, max_retries=3, delay=1):
+    """Decorator pattern for retrying API calls"""
+    def wrapper(*args, **kwargs):
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise e
+                time.sleep(delay * (2 ** attempt))
+        return None
+    return wrapper
+
+# Gene symbol validation
+def validate_gene_symbol(gene: str) -> bool:
+    """Validate gene symbol format"""
+    if not gene or len(gene) < 2:
+        return False
+    # Remove version numbers if present (e.g., TP53.1 -> TP53)
+    gene = re.sub(r'\..*', '', gene)
+    # Check for valid characters
+    if not re.match(r'^[A-Z0-9\-_]+$', gene.upper()):
+        return False
+    return True
+
+def filter_valid_genes(gene_list: List[str]) -> Tuple[List[str], List[str]]:
+    """Filter and validate gene symbols"""
+    valid_genes = []
+    invalid_genes = []
+    
+    for gene in gene_list:
+        if validate_gene_symbol(gene):
+            valid_genes.append(gene.upper())
+        else:
+            invalid_genes.append(gene)
+    
+    return valid_genes, invalid_genes
+
 # Enhanced Helper Functions
 def load_genes_from_any(uploaded_file) -> list[str]:
     """Enhanced gene loading with better error handling"""
@@ -1756,7 +1795,11 @@ def load_genes_from_any(uploaded_file) -> list[str]:
             if target_col is None:
                 target_col = df.columns[0]
                 
-            return _clean_series_to_genes(df[target_col])
+            raw_genes = _clean_series_to_genes(df[target_col])
+            valid_genes, invalid_genes = filter_valid_genes(raw_genes)
+            if invalid_genes:
+                logger.warning(f"Filtered out {len(invalid_genes)} invalid gene symbols")
+            return valid_genes
             
     except Exception as e:
         logger.error(f"Error reading structured file: {e}")
@@ -1766,12 +1809,17 @@ def load_genes_from_any(uploaded_file) -> list[str]:
         uploaded_file.seek(0)
         raw = uploaded_file.read()
         text = raw.decode("utf-8", errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
-        return _clean_series_to_genes(pd.Series([text]))
+        raw_genes = _clean_series_to_genes(pd.Series([text]))
+        valid_genes, invalid_genes = filter_valid_genes(raw_genes)
+        if invalid_genes:
+            logger.warning(f"Filtered out {len(invalid_genes)} invalid gene symbols")
+        return valid_genes
     except Exception as e:
         logger.error(f"Error reading as text: {e}")
         return []
 
 # Enhanced Caching Functions
+@with_retry
 @st.cache_data(ttl=3600, show_spinner=False)
 def kegg_get(path: str) -> str:
     """Enhanced KEGG API call with better error handling"""
@@ -1782,6 +1830,7 @@ def kegg_get(path: str) -> str:
         logger.error(f"KEGG API error for {path}: {e}")
         return ""
 
+@with_retry
 @st.cache_data(ttl=3600, show_spinner=False)
 def ncbi_esearch_gene_ids(gene_symbol: str, organism_entrez: str) -> list[str]:
     """Enhanced NCBI gene search"""
@@ -1799,20 +1848,27 @@ def ncbi_esearch_gene_ids(gene_symbol: str, organism_entrez: str) -> list[str]:
         logger.error(f"NCBI search error for {gene_symbol}: {e}")
         return []
 
+@with_retry
 @st.cache_data(ttl=3600, show_spinner=False)
 def ncbi_esummary_description(gene_id: str) -> str:
-    """Enhanced NCBI gene description fetch"""
+    """Fixed: Enhanced NCBI gene description fetch with None check"""
     try:
         handle = Entrez.esummary(db="gene", id=gene_id, retmode="xml")
         raw_xml = handle.read()
         handle.close()
         root = ET.fromstring(raw_xml)
         docsum = root.find(".//DocumentSummary")
-        return (docsum.findtext("Description", default="") or "").strip()
+        if docsum is not None:
+            description = docsum.findtext("Description", default="")
+            return description.strip() if description else "Description unavailable"
+        else:
+            logger.warning(f"No DocumentSummary found for gene_id: {gene_id}")
+            return "Description unavailable"
     except Exception as e:
         logger.error(f"NCBI summary error for {gene_id}: {e}")
         return "Description unavailable"
 
+@with_retry
 @st.cache_data(ttl=3600, show_spinner=False)
 def kegg_ncbi_to_kegg_gene_id(ncbi_gene_id: str, kegg_org_prefix: str) -> str | None:
     """Enhanced NCBI to KEGG ID conversion"""
@@ -1830,6 +1886,7 @@ def kegg_ncbi_to_kegg_gene_id(ncbi_gene_id: str, kegg_org_prefix: str) -> str | 
         logger.error(f"KEGG conversion error for {ncbi_gene_id}: {e}")
         return None
 
+@with_retry
 @st.cache_data(ttl=3600, show_spinner=False)
 def kegg_gene_pathways(kegg_gene_id: str) -> list[str]:
     """Enhanced KEGG pathway fetch"""
@@ -1848,6 +1905,7 @@ def kegg_gene_pathways(kegg_gene_id: str) -> list[str]:
         logger.error(f"KEGG pathways error for {kegg_gene_id}: {e}")
         return []
 
+@with_retry
 @st.cache_data(ttl=3600, show_spinner=False)
 def kegg_pathway_name(pathway_id: str) -> str | None:
     """Enhanced KEGG pathway name fetch"""
@@ -1877,6 +1935,7 @@ def validate_opentargets_response(data: dict) -> bool:
     
     return True
 
+@with_retry
 @st.cache_data(ttl=3600, show_spinner=False)
 def ot_query(query: str, variables: dict | None = None) -> dict:
     """Enhanced OpenTargets GraphQL query"""
@@ -1900,6 +1959,7 @@ def ot_query(query: str, variables: dict | None = None) -> dict:
         logger.error(f"OpenTargets query error: {e}")
         return {}
 
+@with_retry
 @st.cache_data(ttl=3600, show_spinner=False)
 def ot_target_from_symbol(symbol: str, species: str = "Homo sapiens") -> dict | None:
     """Enhanced target lookup with better matching"""
@@ -1947,6 +2007,7 @@ def ot_target_from_symbol(symbol: str, species: str = "Homo sapiens") -> dict | 
         logger.error(f"Target lookup error for {symbol}: {e}")
         return None
 
+@with_retry
 @st.cache_data(ttl=3600, show_spinner=False)
 def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
     """Enhanced disease associations fetch"""
@@ -1994,6 +2055,7 @@ def ot_diseases_for_target(ensembl_id: str, size: int = 25) -> pd.DataFrame:
         logger.error(f"Disease associations error for {ensembl_id}: {e}")
         return pd.DataFrame(columns=["target", "disease_id", "disease_name", "association_score", "therapeutic_areas"])
 
+@with_retry
 @st.cache_data(ttl=3600, show_spinner=False)
 def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
     """Fixed: Enhanced drug suggestions fetch with correct phase parsing"""
@@ -2111,14 +2173,22 @@ def ot_drugs_for_target(ensembl_id: str, size: int = 50) -> pd.DataFrame:
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
                                  kegg_org_prefix: str):
-    """Enhanced metadata fetch with better progress tracking"""
+    """Enhanced metadata fetch with robust error handling"""
     results = []
     pathway_to_genes = defaultdict(set)
     
     total_genes = len(gene_list)
     
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
     for i, gene in enumerate(gene_list, start=1):
         try:
+            # Update progress
+            progress = min(90, int((i / total_genes) * 90))
+            progress_bar.progress(progress)
+            status_text.text(f"Processing {i}/{total_genes}: {gene}")
+            
             # NCBI gene search
             ids = ncbi_esearch_gene_ids(gene, organism_entrez)
             if not ids:
@@ -2132,7 +2202,13 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
                 continue
                 
             gene_id = ids[0]
-            description = ncbi_esummary_description(gene_id)
+            
+            # Get description with error handling
+            description = "Description unavailable"
+            try:
+                description = ncbi_esummary_description(gene_id)
+            except Exception as desc_error:
+                logger.warning(f"Could not get description for {gene}: {desc_error}")
             
             # KEGG conversion
             kegg_id = kegg_ncbi_to_kegg_gene_id(gene_id, kegg_org_prefix)
@@ -2147,13 +2223,22 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
                 continue
                 
             # KEGG pathways
-            pids = kegg_gene_pathways(kegg_id)
+            pids = []
+            try:
+                pids = kegg_gene_pathways(kegg_id)
+            except Exception as pathway_error:
+                logger.warning(f"Could not get pathways for {gene}: {pathway_error}")
+                
             pathway_pairs = []
             
             for pid in pids:
-                name = kegg_pathway_name(pid) or "Unknown"
-                pathway_pairs.append(f"{pid.replace('path:', '')} - {name}")
-                pathway_to_genes[pid].add(gene)
+                try:
+                    name = kegg_pathway_name(pid) or "Unknown"
+                    pathway_pairs.append(f"{pid.replace('path:', '')} - {name}")
+                    pathway_to_genes[pid].add(gene)
+                except Exception as name_error:
+                    logger.warning(f"Could not get pathway name for {pid}: {name_error}")
+                    pathway_pairs.append(f"{pid.replace('path:', '')} - Unknown")
                 
             pathways_str = "; ".join(pathway_pairs) if pathway_pairs else None
             
@@ -2178,6 +2263,13 @@ def fetch_gene_metadata_and_kegg(gene_list: list[str], organism_entrez: str,
                 "Status": "Error"
             })
     
+    # Final progress update
+    progress_bar.progress(100)
+    status_text.text("Metadata fetch complete!")
+    time.sleep(0.5)
+    progress_bar.empty()
+    status_text.empty()
+    
     return pd.DataFrame(results), dict(pathway_to_genes)
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -2188,15 +2280,19 @@ def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
         
     rows = []
     for pid, genes in pathway_to_genes.items():
-        pathway_name = kegg_pathway_name(pid) or "Unknown pathway"
-        gene_list = sorted(list(genes))
-        
-        rows.append({
-            "Pathway_ID": pid.replace("path:", ""),
-            "Pathway_Name": pathway_name,
-            "Count": len(genes),
-            "Gene_List": ", ".join(gene_list[:10]) + ("..." if len(gene_list) > 10 else "")
-        })
+        try:
+            pathway_name = kegg_pathway_name(pid) or "Unknown pathway"
+            gene_list = sorted(list(genes))
+            
+            rows.append({
+                "Pathway_ID": pid.replace("path:", ""),
+                "Pathway_Name": pathway_name,
+                "Count": len(genes),
+                "Gene_List": ", ".join(gene_list[:10]) + ("..." if len(gene_list) > 10 else "")
+            })
+        except Exception as e:
+            logger.error(f"Error processing pathway {pid}: {e}")
+            continue
     
     df = pd.DataFrame(rows)
     if not df.empty:
@@ -2208,7 +2304,16 @@ def compute_enrichment_counts_only(pathway_to_genes: dict) -> pd.DataFrame:
 def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens") -> dict:
     """Enhanced gene to target mapping with progress tracking"""
     g2t = {}
-    for g in genes:
+    total_genes = len(genes)
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, g in enumerate(genes, start=1):
+        progress = int((i / total_genes) * 100)
+        progress_bar.progress(progress)
+        status_text.text(f"Mapping genes to targets: {i}/{total_genes}")
+        
         try:
             hit = ot_target_from_symbol(g, species)
             if hit:
@@ -2219,14 +2324,32 @@ def build_gene_to_ot_target_map(genes: list[str], species: str = "Homo sapiens")
             time.sleep(0.05)  # Reduced sleep time
         except Exception as e:
             logger.error(f"Error mapping {g}: {e}")
+    
+    progress_bar.progress(100)
+    status_text.text("Gene mapping complete!")
+    time.sleep(0.5)
+    progress_bar.empty()
+    status_text.empty()
+    
     return g2t
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
     """Enhanced disease collection with better error handling"""
     frames = []
+    total_targets = len(gene_to_target)
     
-    for g, tgt in gene_to_target.items():
+    if total_targets == 0:
+        return pd.DataFrame(columns=["gene", "gene_symbol", "target", "disease_id", "disease_name", "association_score", "therapeutic_areas"])
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, (g, tgt) in enumerate(gene_to_target.items(), start=1):
+        progress = int((i / total_targets) * 100)
+        progress_bar.progress(progress)
+        status_text.text(f"Collecting disease associations: {i}/{total_targets}")
+        
         tid = tgt.get("id")
         if not tid:
             continue
@@ -2241,6 +2364,12 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
         except Exception as e:
             logger.error(f"Error collecting diseases for {g}: {e}")
     
+    progress_bar.progress(100)
+    status_text.text("Disease collection complete!")
+    time.sleep(0.5)
+    progress_bar.empty()
+    status_text.empty()
+    
     if frames:
         combined = pd.concat(frames, ignore_index=True)
         combined = combined.drop_duplicates(subset=["gene", "disease_id"])
@@ -2251,10 +2380,21 @@ def collect_disease_links(gene_to_target: dict) -> pd.DataFrame:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
-    """Fixed: Enhanced drug collection with better filtering"""
+    """Enhanced drug collection with better filtering"""
     frames = []
+    total_targets = len(gene_to_target)
     
-    for g, tgt in gene_to_target.items():
+    if total_targets == 0:
+        return pd.DataFrame()
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, (g, tgt) in enumerate(gene_to_target.items(), start=1):
+        progress = int((i / total_targets) * 100)
+        progress_bar.progress(progress)
+        status_text.text(f"Collecting drug suggestions: {i}/{total_targets}")
+        
         tid = tgt.get("id")
         if not tid:
             continue
@@ -2271,6 +2411,12 @@ def collect_drug_suggestions(gene_to_target: dict) -> pd.DataFrame:
             time.sleep(0.05)  # Reduced sleep time
         except Exception as e:
             logger.error(f"Error collecting drugs for {g}: {e}")
+    
+    progress_bar.progress(100)
+    status_text.text("Drug collection complete!")
+    time.sleep(0.5)
+    progress_bar.empty()
+    status_text.empty()
     
     if frames:
         combined = pd.concat(frames, ignore_index=True)
@@ -2870,27 +3016,26 @@ def run_pathway_analysis(genes_from_input=None):
     
     if genes_from_user:
         # Validate gene list
-        is_valid, validation_msg = validate_gene_list(genes_from_user)
+        valid_genes, invalid_genes = filter_valid_genes(genes_from_user)
         
-        if not is_valid:
-            st.warning(f"⚠️ {validation_msg}")
-            if len(genes_from_user) > Config.MAX_GENES:
-                genes_from_user = genes_from_user[:Config.MAX_GENES]
-                st.info(f"Using first {Config.MAX_GENES} genes")
+        if invalid_genes:
+            st.warning(f"⚠️ Filtered out {len(invalid_genes)} invalid gene symbols")
+            if len(valid_genes) == 0:
+                st.error("No valid gene symbols found")
+                return
         
         # Show summary
         col_sum1, col_sum2, col_sum3 = st.columns(3)
         
         with col_sum1:
-            st.metric("Genes Ready", len(genes_from_user))
+            st.metric("Valid Genes", len(valid_genes))
         
         with col_sum2:
-            status = "✅ Valid" if is_valid else "⚠️ Needs review"
-            st.metric("Validation", status)
+            st.metric("Invalid Genes", len(invalid_genes))
         
         with col_sum3:
-            if email:
-                st.metric("Email", "✅ Provided")
+            if email and validate_email(email):
+                st.metric("Email", "✅ Valid")
             else:
                 st.metric("Email", "❌ Required")
         
@@ -2901,15 +3046,15 @@ def run_pathway_analysis(genes_from_input=None):
             run_analysis = st.button(
                 "🚀 Start Analysis", 
                 type="primary", 
-                disabled=(not genes_from_user or not email),
+                disabled=(not valid_genes or not email),
                 width="stretch"
             )
         
         with col_btn2:
             if not email:
                 st.warning("Please provide your NCBI email address")
-            elif not genes_from_user:
-                st.info("Please provide gene symbols")
+            elif not valid_genes:
+                st.info("Please provide valid gene symbols")
     
     else:
         st.info("👆 Please provide gene symbols using one of the input methods above")
@@ -2917,7 +3062,7 @@ def run_pathway_analysis(genes_from_input=None):
     
     if run_analysis and email:
         set_entrez_email(email)
-        run_pathway_analysis_with_genes(genes_from_user, organism_entrez, kegg_org_prefix, 
+        run_pathway_analysis_with_genes(valid_genes, organism_entrez, kegg_org_prefix, 
                                        opt_only_phase4, show_investigational)
 
 def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None, 
@@ -2929,6 +3074,10 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
         organism_entrez = "Homo sapiens"
     if kegg_org_prefix is None:
         kegg_org_prefix = "hsa"
+    
+    # Overall progress tracker
+    overall_progress = st.progress(0)
+    overall_status = st.empty()
     
     # Create tabs for different analysis sections
     tab_meta, tab_path, tab_disease, tab_drug, tab_viz = st.tabs([
@@ -2944,6 +3093,8 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
         st.markdown('<div class="section-title">Gene Annotations & Metadata</div>', unsafe_allow_html=True)
         
         if 'metadata' not in st.session_state.analysis_results:
+            overall_status.text("🔄 Step 1/5: Fetching gene metadata and pathways...")
+            
             with st.spinner("🔍 Fetching gene metadata and pathways..."):
                 df_meta, pathway_to_genes = fetch_gene_metadata_and_kegg(
                     genes_from_input, organism_entrez, kegg_org_prefix
@@ -2951,6 +3102,7 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
             
             st.session_state.analysis_results['metadata'] = df_meta
             st.session_state.analysis_results['pathways'] = pathway_to_genes
+            overall_progress.progress(20)
         else:
             df_meta = st.session_state.analysis_results['metadata']
             pathway_to_genes = st.session_state.analysis_results['pathways']
@@ -3010,8 +3162,12 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
         if 'pathways' in st.session_state.analysis_results:
             pathway_to_genes = st.session_state.analysis_results['pathways']
             
+            overall_status.text("🔄 Step 2/5: Computing pathway enrichment...")
+            
             with st.spinner("📈 Computing pathway enrichment..."):
                 df_enrich = compute_enrichment_counts_only(pathway_to_genes)
+            
+            overall_progress.progress(40)
             
             if not df_enrich.empty:
                 # Summary
@@ -3086,12 +3242,15 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
         st.markdown('<div class="section-title">Disease Associations</div>', unsafe_allow_html=True)
         
         if 'diseases' not in st.session_state.analysis_results:
+            overall_status.text("🔄 Step 3/5: Mapping genes and fetching disease associations...")
+            
             with st.spinner("🔍 Mapping genes to targets and fetching disease associations..."):
                 gene_to_target = build_gene_to_ot_target_map(genes_from_input)
                 df_diseases = collect_disease_links(gene_to_target)
                 
             st.session_state.analysis_results['gene_to_target'] = gene_to_target
             st.session_state.analysis_results['diseases'] = df_diseases
+            overall_progress.progress(60)
         else:
             gene_to_target = st.session_state.analysis_results['gene_to_target']
             df_diseases = st.session_state.analysis_results['diseases']
@@ -3204,9 +3363,14 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
         if 'drugs' not in st.session_state.analysis_results:
             if 'gene_to_target' in st.session_state.analysis_results:
                 gene_to_target = st.session_state.analysis_results['gene_to_target']
+                
+                overall_status.text("🔄 Step 4/5: Collecting drug suggestions...")
+                
                 with st.spinner("💊 Collecting drug suggestions..."):
                     df_drugs = collect_drug_suggestions(gene_to_target)
+                
                 st.session_state.analysis_results['drugs'] = df_drugs
+                overall_progress.progress(80)
             else:
                 st.error("❌ Complete disease association step first")
                 df_drugs = pd.DataFrame()
@@ -3330,6 +3494,13 @@ def run_pathway_analysis_with_genes(genes_from_input, organism_entrez=None,
         has_diseases = 'diseases' in st.session_state.analysis_results and not st.session_state.analysis_results['diseases'].empty
         has_drugs = 'drugs' in st.session_state.analysis_results and not st.session_state.analysis_results['drugs'].empty
         has_pathways = 'pathways' in st.session_state.analysis_results and st.session_state.analysis_results['pathways']
+        
+        overall_status.text("🔄 Step 5/5: Generating visualizations...")
+        overall_progress.progress(100)
+        overall_status.text("✅ Analysis Complete!")
+        time.sleep(1)
+        overall_progress.empty()
+        overall_status.empty()
         
         if has_diseases or has_drugs or has_pathways:
             col_left, col_right = st.columns(2)
