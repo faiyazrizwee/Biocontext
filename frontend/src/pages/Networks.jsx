@@ -1,10 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import cytoscape from 'cytoscape';
+import { useDropzone } from 'react-dropzone';
+import * as XLSX from 'xlsx';
 import { networksApi, annotationApi } from '../api';
 import './Networks.css';
 
 const Networks = () => {
     const [geneInput, setGeneInput] = useState('');
+    const [uploadedFile, setUploadedFile] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [networkData, setNetworkData] = useState(null);
@@ -12,11 +15,123 @@ const Networks = () => {
     const cyRef = useRef(null);
     const containerRef = useRef(null);
 
+    // Parse genes from text input
     const parseGenes = () => {
         return geneInput
             .split(/[\n,\s]+/)
             .map(g => g.trim().toUpperCase())
             .filter(g => g.length > 0);
+    };
+
+    // Handle file upload
+    const onDrop = useCallback(async (acceptedFiles) => {
+        if (acceptedFiles.length === 0) return;
+
+        const file = acceptedFiles[0];
+        setUploadedFile(file);
+        setError(null);
+
+        try {
+            const genes = await parseFile(file);
+            if (genes.length > 0) {
+                setGeneInput(genes.join('\n'));
+            } else {
+                setError('No valid gene symbols found in file');
+            }
+        } catch (err) {
+            setError(`Error reading file: ${err.message}`);
+        }
+    }, []);
+
+    // Parse different file formats
+    const parseFile = (file) => {
+        return new Promise((resolve, reject) => {
+            const fileName = file.name.toLowerCase();
+            const reader = new FileReader();
+
+            if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+                // Excel file
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+
+                        // Extract genes from first column (skip header if present)
+                        const genes = [];
+                        jsonData.forEach((row, idx) => {
+                            if (row[0]) {
+                                const gene = String(row[0]).trim().toUpperCase();
+                                // Skip common header names
+                                if (idx === 0 && ['GENE', 'GENES', 'SYMBOL', 'GENE_SYMBOL', 'GENE_NAME', 'ID'].includes(gene)) {
+                                    return;
+                                }
+                                if (gene.length > 0 && gene.length < 20) {
+                                    genes.push(gene);
+                                }
+                            }
+                        });
+                        resolve(genes);
+                    } catch (err) {
+                        reject(err);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                // Text files (txt, csv, tsv)
+                reader.onload = (e) => {
+                    try {
+                        const text = e.target.result;
+                        let genes = [];
+
+                        if (fileName.endsWith('.csv')) {
+                            // CSV: split by comma or newline
+                            genes = text.split(/[,\n\r]+/);
+                        } else if (fileName.endsWith('.tsv')) {
+                            // TSV: split by tab or newline
+                            genes = text.split(/[\t\n\r]+/);
+                        } else {
+                            // TXT: split by any whitespace, comma, or newline
+                            genes = text.split(/[\s,\n\r\t]+/);
+                        }
+
+                        // Clean and filter genes
+                        genes = genes
+                            .map(g => g.trim().toUpperCase())
+                            .filter(g => {
+                                // Skip common headers
+                                if (['GENE', 'GENES', 'SYMBOL', 'GENE_SYMBOL', 'GENE_NAME', 'ID', ''].includes(g)) {
+                                    return false;
+                                }
+                                return g.length > 0 && g.length < 20;
+                            });
+
+                        resolve(genes);
+                    } catch (err) {
+                        reject(err);
+                    }
+                };
+                reader.readAsText(file);
+            }
+        });
+    };
+
+    const { getRootProps, getInputProps, isDragActive } = useDropzone({
+        onDrop,
+        accept: {
+            'text/plain': ['.txt'],
+            'text/csv': ['.csv'],
+            'text/tab-separated-values': ['.tsv'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+            'application/vnd.ms-excel': ['.xls']
+        },
+        maxFiles: 1
+    });
+
+    const clearFile = () => {
+        setUploadedFile(null);
+        setGeneInput('');
     };
 
     const buildNetwork = async () => {
@@ -199,13 +314,42 @@ const Networks = () => {
                     {/* Controls Panel */}
                     <div className="controls-panel card">
                         <h3>Build Network</h3>
+
+                        <div {...getRootProps()} className={`file-dropzone ${isDragActive ? 'active' : ''} ${uploadedFile ? 'has-file' : ''}`}>
+                            <input {...getInputProps()} />
+                            <div className="dropzone-content">
+                                {uploadedFile ? (
+                                    <div className="file-info">
+                                        <span className="file-icon">📄</span>
+                                        <div className="file-details">
+                                            <span className="file-name">{uploadedFile.name}</span>
+                                            <span className="file-size">{(uploadedFile.size / 1024).toFixed(1)} KB</span>
+                                        </div>
+                                        <button className="clear-btn" onClick={(e) => { e.stopPropagation(); clearFile(); }}>✕</button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <span className="upload-icon">📁</span>
+                                        <p>{isDragActive ? 'Drop file here' : 'Click or drag file to upload'}</p>
+                                        <span className="file-formats">TXT, CSV, TSV, XLSX</span>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="divider">
+                            <span>OR</span>
+                        </div>
+
                         <textarea
                             className="gene-input"
                             placeholder="Enter gene symbols&#10;(one per line or comma-separated)"
                             value={geneInput}
                             onChange={(e) => setGeneInput(e.target.value)}
                         />
-                        <div className="gene-count">{parseGenes().length} genes</div>
+                        <div className="gene-count">
+                            <span className="count-badge">{parseGenes().length}</span> genes detected
+                        </div>
 
                         {error && <div className="error-message">{error}</div>}
 
