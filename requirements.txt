@@ -1,0 +1,9 @@
+streamlit
+pandas
+numpy
+scipy
+pydeseq2
+requests
+biopython
+plotly
+networkx
