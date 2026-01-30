@@ -1024,8 +1024,8 @@ def compute_deseq2_results(_count_matrix, sample_group1, sample_group2,
             'condition': conditions
         }, index=samples)
         
-        # Select the count data for the samples
-        count_data = _count_matrix[samples]
+        # Select the count data for the samples and ensure they are integers (required by DESeq2)
+        count_data = _count_matrix[samples].round().astype(int)
         
         # IMPORTANT: Transpose the count matrix so that samples are rows and genes are columns
         # DESeq2 expects: rows = samples, columns = genes
@@ -1048,24 +1048,27 @@ def compute_deseq2_results(_count_matrix, sample_group1, sample_group2,
         stat_res.summary()
         results_df = stat_res.results_df
         
-        # Format results to match our expected format
+        # Format results with Gene as index to ensure correct alignment for mean values
         results = pd.DataFrame({
-            'Gene': results_df.index,
             'logFC': results_df['log2FoldChange'],
             'p_value': results_df['pvalue'],
             'adj_p_value': results_df['padj'],
             'baseMean': results_df['baseMean'],
             'lfcSE': results_df['lfcSE'],
             'stat': results_df['stat']
-        })
+        }, index=results_df.index)
         
         # Handle NaN values
         results['p_value'] = results['p_value'].fillna(1.0)
         results['adj_p_value'] = results['adj_p_value'].fillna(1.0)
         
         # Add mean expression values from the original (non-transposed) data
+        # Alignment is guaranteed because both share the same Gene identifiers in the index
         results['mean_group1'] = count_data[sample_group1].mean(axis=1)
         results['mean_group2'] = count_data[sample_group2].mean(axis=1)
+        
+        # Reset index to make 'Gene' a column again as expected by the pipeline
+        results = results.reset_index().rename(columns={'index': 'Gene'})
         
         return results
         
