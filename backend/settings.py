@@ -135,6 +135,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173", # Vite default port
     "http://127.0.0.1:5173",
+    "https://gene2therapy.vercel.app",
 ]
 
 # File Upload Settings
